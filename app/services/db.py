@@ -28,10 +28,24 @@ class Channel(Base):
     link: Mapped[str] = mapped_column(String, nullable=True)  # Новое поле
     is_active: Mapped[bool] = mapped_column(default=True)
 
+class Counter(Base):
+    __tablename__ = "counters"
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[int] = mapped_column(default=0)
+    
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
+        # Добавляем счетчик если его нет
+        exists = await conn.execute(
+            select(Counter).where(Counter.name == "promos_issued")
+        )
+        if not exists.scalar_one_or_none():
+            await conn.execute(
+                insert(Counter).values(name="promos_issued", value=0)
+            )
+            
         # Добавляем каналы из конфига если их нет
         for channel in settings.CHANNELS:
             exists = await conn.execute(

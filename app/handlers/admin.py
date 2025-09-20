@@ -12,6 +12,7 @@ from app.config import settings
 from app.services.sheets import update_table
 from app.services.replics import get_replic
 from app.services.db import SessionLocal, Replic
+from app.services.counters import get_counter, reset_counter
 from app.services.channels import get_all_channels, toggle_channel, update_channel, delete_channel, get_channel
 
 router = Router()
@@ -22,7 +23,8 @@ INFO_TEXT = (
     "/info — список команд\n"
     "/table — обновить таблицу\n"
     "/channels — управление каналами\n"
-    "/edit_replics — редактировать реплики"
+    "/edit_replics — редактировать реплики\n"
+    "/stats — статистика выданных промокодов"
 )
 
 # Состояния для редактирования реплик
@@ -368,3 +370,44 @@ async def cancel_edit_link(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     channel_id = int(callback.data.split("_")[1])
     await channel_action_handler(callback, state)
+    
+@router.message(F.text == "/stats")
+async def cmd_stats(message: Message):
+    if message.from_user.id not in settings.ADMINS:
+        return
+    
+    count = await get_counter()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обнулить счетчик", callback_data="reset_counter")]
+    ])
+    
+    await message.answer(f"Всего выдано промокодов: {count}", reply_markup=keyboard)
+
+@router.callback_query(F.data == "reset_counter")
+async def reset_counter_handler(callback: CallbackQuery):
+    if callback.from_user.id not in settings.ADMINS:
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да", callback_data="confirm_reset")],
+        [InlineKeyboardButton(text="❌ Нет", callback_data="cancel_reset")]
+    ])
+    
+    await callback.message.edit_text(
+        "Вы уверены, что хотите обнулить счетчик?",
+        reply_markup=keyboard
+    )
+
+@router.callback_query(F.data == "confirm_reset")
+async def confirm_reset_handler(callback: CallbackQuery):
+    if callback.from_user.id not in settings.ADMINS:
+        return
+    
+    await reset_counter()
+    await callback.message.edit_text("Счетчик обнулен!")
+    await callback.answer()
+
+@router.callback_query(F.data == "cancel_reset")
+async def cancel_reset_handler(callback: CallbackQuery):
+    await callback.message.edit_text("Отмена обнуления счетчика")
+    await callback.answer()
