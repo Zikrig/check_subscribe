@@ -10,7 +10,6 @@ async def get_or_assign_promo(user_id: int) -> str | None:
         if promo:
             promo.user_id = user_id
             await session.commit()
-            await increment_counter()  # Увеличиваем счетчик
             return promo.code
 
         # Берём первый свободный
@@ -20,5 +19,6 @@ async def get_or_assign_promo(user_id: int) -> str | None:
             return None
 
         promo.user_id = user_id
+        await increment_counter() 
         await session.commit()
         return promo.code
