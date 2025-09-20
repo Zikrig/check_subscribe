@@ -151,7 +151,8 @@ async def manage_channels(message: Message):
             callback_data=f"channel_{channel.id}"
         )
         keyboard.inline_keyboard.append([button])
-    
+    add_button = InlineKeyboardButton(text="➕ Добавить канал", callback_data="add_channel")
+    keyboard.inline_keyboard.append([add_button])
     back_button = InlineKeyboardButton(text="⬅️ Назад", callback_data="cancel_channels")
     keyboard.inline_keyboard.append([back_button])
     
@@ -411,3 +412,58 @@ async def confirm_reset_handler(callback: CallbackQuery):
 async def cancel_reset_handler(callback: CallbackQuery):
     await callback.message.edit_text("Отмена обнуления счетчика")
     await callback.answer()
+    
+    
+@router.callback_query(F.data == "add_channel")
+async def add_channel_handler(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(ChannelManage.adding_channel)
+    await callback.message.edit_text(
+        "Введите данные канала в формате:\n"
+        "<code>id username [name] [link]</code>\n\n"
+        "Пример:\n"
+        "<code>-10012345678 channel_username Название канала https://t.me/channel_username</code>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_channels")]
+        ])
+    )
+    await callback.answer()
+
+# Обработчик сообщения с данными нового канала
+@router.message(StateFilter(ChannelManage.adding_channel))
+async def process_add_channel(message: Message, state: FSMContext):
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            await message.answer("Ошибка: недостаточно данных. Нужно как минимум id и username.")
+            return
+
+        channel_id = int(parts[0])
+        username = parts[1]
+        name = ' '.join(parts[2:]) if len(parts) > 2 else None
+        link = None
+
+        # Проверяем, есть ли ссылка в сообщении
+        for part in parts[2:]:
+            if part.startswith(('http://', 'https://', 't.me/')):
+                link = part
+                # Убираем ссылку из названия
+                if name:
+                    name = name.replace(part, '').strip()
+                break
+
+        from app.services.channels import add_channel
+        success = await add_channel(channel_id, username, name, link)
+        
+        if success:
+            await message.answer("Канал успешно добавлен!")
+        else:
+            await message.answer("Ошибка: канал с таким ID уже существует.")
+            
+    except ValueError:
+        await message.answer("Ошибка: ID канала должен быть числом.")
+    except Exception as e:
+        await message.answer(f"Ошибка при добавлении канала: {str(e)}")
+    
+    await state.clear()
+    await manage_channels(message)
