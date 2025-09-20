@@ -18,8 +18,10 @@ async def subscription_keyboard(bot, user_id: int):
             subscribed = False
 
         emoji = "✅" if subscribed else "❌"
-        text = f"{emoji} {ch.username}"
-        url_button = InlineKeyboardButton(text=text, url=f"https://t.me/{ch.username.lstrip('@')}")
+        display_name = ch.name or ch.username  # Используем name если есть, иначе username
+        url = ch.link or f"https://t.me/{ch.username.lstrip('@')}"  # Используем link если есть
+        text = f"{emoji} {display_name}"
+        url_button = InlineKeyboardButton(text=text, url=url)
         buttons.append([url_button])
 
     check_button = InlineKeyboardButton(text="Я подписался", callback_data="check_subs")

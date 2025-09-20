@@ -24,6 +24,8 @@ class Channel(Base):
     __tablename__ = "channels"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String, nullable=True)  # Новое поле
+    link: Mapped[str] = mapped_column(String, nullable=True)  # Новое поле
     is_active: Mapped[bool] = mapped_column(default=True)
 
 async def init_db():
@@ -40,6 +42,7 @@ async def init_db():
                     insert(Channel).values(
                         id=channel["id"],
                         username=channel["username"],
+                        name=channel["username"],  # По умолчанию используем username как name
                         is_active=True
                     )
                 )

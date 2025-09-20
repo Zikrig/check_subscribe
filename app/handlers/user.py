@@ -2,6 +2,7 @@
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
+
 from app.keyboards import subscription_keyboard
 from app.services.promos import get_or_assign_promo
 from app.config import settings

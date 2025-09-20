@@ -6,13 +6,13 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select
-
+import re
 
 from app.config import settings
 from app.services.sheets import update_table
 from app.services.replics import get_replic
 from app.services.db import SessionLocal, Replic
-from app.services.channels import get_all_channels, toggle_channel
+from app.services.channels import get_all_channels, toggle_channel, update_channel, delete_channel, get_channel
 
 router = Router()
 
@@ -24,9 +24,19 @@ INFO_TEXT = (
     "/channels — управление каналами\n"
     "/edit_replics — редактировать реплики"
 )
+
+# Состояния для редактирования реплик
 class EditReplic(StatesGroup):
     choosing_replic = State()
     editing_text = State()
+
+# Состояния для управления каналами
+class ChannelManage(StatesGroup):
+    choosing_action = State()
+    adding_channel = State()
+    editing_name = State()
+    editing_link = State()
+    confirming_delete = State()
 
 @router.message(F.text == "/table")
 async def cmd_table(message: Message):
@@ -121,8 +131,7 @@ async def save_new_replic(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(INFO_TEXT)
     
-    
-
+# Управление каналами
 @router.message(F.text == "/channels")
 async def manage_channels(message: Message):
     if message.from_user.id not in settings.ADMINS:
@@ -133,45 +142,229 @@ async def manage_channels(message: Message):
     
     for channel in channels:
         status = "✅" if channel.is_active else "❌"
+        display_name = channel.name or channel.username
+        
         button = InlineKeyboardButton(
-            text=f"{status} {channel.username}",
-            callback_data=f"toggle_channel_{channel.id}"
+            text=f"{status} {display_name}",
+            callback_data=f"channel_{channel.id}"
         )
         keyboard.inline_keyboard.append([button])
     
-    back_button = InlineKeyboardButton(text="Назад", callback_data="cancel_channels")
+    back_button = InlineKeyboardButton(text="⬅️ Назад", callback_data="cancel_channels")
     keyboard.inline_keyboard.append([back_button])
     
     await message.answer("Управление каналами:", reply_markup=keyboard)
 
-@router.callback_query(F.data.startswith("toggle_channel_"))
+
+@router.callback_query(F.data.startswith("toggle_"))
 async def channel_toggle_handler(callback: CallbackQuery):
-    channel_id = int(callback.data.split("_")[2])
+    channel_id = int(callback.data.split("_")[1])
     success = await toggle_channel(channel_id)
     
     if success:
-        # Получаем обновленный список каналов
-        channels = await get_all_channels()
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+        # Обновляем сообщение с новой информацией
+        channel = await get_channel(channel_id)
+        status_btn_text = "❌ Деактивировать" if channel.is_active else "✅ Активировать"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=status_btn_text, callback_data=f"toggle_{channel_id}")],
+            [InlineKeyboardButton(text="✏️ Изменить название", callback_data=f"edit_name_{channel_id}")],
+            [InlineKeyboardButton(text="🔗 Изменить ссылку", callback_data=f"edit_link_{channel_id}")],
+            [InlineKeyboardButton(text="🗑️ Удалить канал", callback_data=f"delete_{channel_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="cancel_channels")]
+        ])
         
-        for channel in channels:
-            status = "✅" if channel.is_active else "❌"
-            button = InlineKeyboardButton(
-                text=f"{status} {channel.username}",
-                callback_data=f"toggle_channel_{channel.id}"
-            )
-            keyboard.inline_keyboard.append([button])
-        
-        back_button = InlineKeyboardButton(text="Назад", callback_data="cancel_channels")
-        keyboard.inline_keyboard.append([back_button])
-        
-        # Обновляем текущее сообщение с новой клавиатурой
-        await callback.message.edit_text("Управление каналами:", reply_markup=keyboard)
+        await callback.message.edit_text(
+            f"Управление каналом:\n\n"
+            f"ID: {channel.id}\n"
+            f"Username: {channel.username}\n"
+            f"Название: {channel.name or 'Не задано'}\n"
+            f"Ссылка: {channel.link or 'Не задана'}\n"
+            f"Статус: {'Активен' if channel.is_active else 'Неактивен'}",
+            reply_markup=keyboard
+        )
     
     await callback.answer()
 
+@router.callback_query(F.data.startswith("edit_name_"))
+async def channel_edit_name_handler(callback: CallbackQuery, state: FSMContext):
+    channel_id = int(callback.data.split("_")[2])
+    await state.update_data(channel_id=channel_id)
+    await state.set_state(ChannelManage.editing_name)
+    
+    await callback.message.edit_text(
+        "Введите новое название канала:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отменить", callback_data=f"channel_{channel_id}")]
+        ])
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("edit_link_"))
+async def channel_edit_link_handler(callback: CallbackQuery, state: FSMContext):
+    channel_id = int(callback.data.split("_")[2])
+    await state.update_data(channel_id=channel_id)
+    await state.set_state(ChannelManage.editing_link)
+    
+    await callback.message.edit_text(
+        "Введите новую ссылку канала (должна начинаться с https:// или http://):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отменить", callback_data=f"channel_{channel_id}")]
+        ])
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("delete_"))
+async def channel_delete_handler(callback: CallbackQuery, state: FSMContext):
+    channel_id = int(callback.data.split("_")[1])
+    await state.update_data(channel_id=channel_id)
+    await state.set_state(ChannelManage.confirming_delete)
+    
+    channel = await get_channel(channel_id)
+    await callback.message.edit_text(
+        f"Вы уверены, что хотите удалить канал {channel.name or channel.username}?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_delete_{channel_id}")],
+            [InlineKeyboardButton(text="❌ Нет", callback_data=f"channel_{channel_id}")]
+        ])
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("confirm_delete_"))
+async def channel_confirm_delete_handler(callback: CallbackQuery, state: FSMContext):
+    channel_id = int(callback.data.split("_")[2])
+    
+    success = await delete_channel(channel_id)
+    if success:
+        await callback.message.edit_text("Канал успешно удален!")
+        await manage_channels(callback.message)
+    else:
+        await callback.answer("Ошибка при удалении канала")
+    
+    await state.clear()
+    await callback.answer()
+
+
+@router.callback_query(F.data == "channel_back")
+async def channel_back_handler(callback: CallbackQuery, state: FSMContext):
+    """Обработчик кнопки Назад в управлении каналами"""
+    await state.clear()
+    await manage_channels(callback.message)
+    await callback.answer()
+
 @router.callback_query(F.data == "cancel_channels")
-async def cancel_channels(callback: CallbackQuery):
+async def cancel_channels_handler(callback: CallbackQuery, state: FSMContext):
+    """Обработчик отмены управления каналами"""
+    await state.clear()
     await callback.message.edit_text("Управление каналами завершено.")
     await callback.message.answer(INFO_TEXT)
     await callback.answer()
+
+
+@router.callback_query(StateFilter(ChannelManage.editing_name), F.data.startswith("channel_"))
+async def cancel_edit_name(callback: CallbackQuery, state: FSMContext):
+    """Отмена редактирования названия канала"""
+    await state.clear()
+    channel_id = int(callback.data.split("_")[1])
+    await channel_action_handler(callback, state)
+    await callback.answer()
+
+@router.callback_query(StateFilter(ChannelManage.editing_link), F.data.startswith("channel_"))
+async def cancel_edit_link(callback: CallbackQuery, state: FSMContext):
+    
+    """Отмена редактирования ссылки канала"""
+    await state.clear()
+    channel_id = int(callback.data.split("_")[1])
+    await channel_action_handler(callback, state)
+    await callback.answer()
+    
+    
+@router.callback_query(F.data.startswith("channel_"))
+async def channel_action_handler(callback: CallbackQuery, state: FSMContext):
+    if callback.data == "channel_back":
+        # Обрабатываем кнопку "Назад"
+        await manage_channels(callback.message)
+        await callback.answer()
+        return
+        
+    parts = callback.data.split("_")
+    channel_id = int(parts[1])
+    
+    # Получаем информацию о канале
+    channel = await get_channel(channel_id)
+    if not channel:
+        await callback.answer("Канал не найден")
+        return
+    
+    await state.update_data(channel_id=channel_id)
+    
+    # Создаем клавиатуру для управления каналом
+    status_btn_text = "❌ Деактивировать" if channel.is_active else "✅ Активировать"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=status_btn_text, callback_data=f"toggle_{channel_id}")],
+        [InlineKeyboardButton(text="✏️ Изменить название", callback_data=f"edit_name_{channel_id}")],
+        [InlineKeyboardButton(text="🔗 Изменить ссылку", callback_data=f"edit_link_{channel_id}")],
+        [InlineKeyboardButton(text="🗑️ Удалить канал", callback_data=f"delete_{channel_id}")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="cancel_channels")]
+    ])
+    
+    await callback.message.edit_text(
+        f"Управление каналом:\n\n"
+        f"ID: {channel.id}\n"
+        f"Username: {channel.username}\n"
+        f"Название: {channel.name or 'Не задано'}\n"
+        f"Ссылка: {channel.link or 'Не задана'}\n"
+        f"Статус: {'Активен' if channel.is_active else 'Неактивен'}",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+
+@router.message(StateFilter(ChannelManage.editing_name))
+async def process_edit_name(message: Message, state: FSMContext):
+    data = await state.get_data()
+    channel_id = data.get("channel_id")
+    new_name = message.text
+
+    success = await update_channel(channel_id, name=new_name)
+    if success:
+        await message.answer("Название канала успешно обновлено!")
+    else:
+        await message.answer("Ошибка при обновлении названия канала.")
+
+    await state.clear()
+    await manage_channels(message)
+
+@router.message(StateFilter(ChannelManage.editing_link))
+async def process_edit_link(message: Message, state: FSMContext):
+    data = await state.get_data()
+    channel_id = data.get("channel_id")
+    new_link = message.text
+
+    try:
+        success = await update_channel(channel_id, link=new_link)
+        if success:
+            await message.answer("Ссылка канала успешно обновлена!")
+        else:
+            await message.answer("Ошибка при обновлении ссылки канала.")
+    except ValueError as e:
+        await message.answer(str(e))
+
+    await state.clear()
+    await manage_channels(message)
+
+
+# Update the cancel handlers to properly clear state
+@router.callback_query(StateFilter(ChannelManage.editing_name), F.data.startswith("channel_"))
+async def cancel_edit_name(callback: CallbackQuery, state: FSMContext):
+    """Отмена редактирования названия канала"""
+    await state.clear()
+    channel_id = int(callback.data.split("_")[1])
+    await channel_action_handler(callback, state)
+
+@router.callback_query(StateFilter(ChannelManage.editing_link), F.data.startswith("channel_"))
+async def cancel_edit_link(callback: CallbackQuery, state: FSMContext):
+    """Отмена редактирования ссылки канала"""
+    await state.clear()
+    channel_id = int(callback.data.split("_")[1])
+    await channel_action_handler(callback, state)
