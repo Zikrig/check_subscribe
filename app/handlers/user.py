@@ -77,4 +77,10 @@ async def check_subs_callback(event: MessageCallback):
             parse_mode=ParseMode.HTML,
         )
 
-    await event.answer()
+    # Не вызывать event.answer(): в maxapi он всегда шлёт в ответ callback
+    # старые attachments из original_body и затирает edit() (клавиатура остаётся).
+    await bot.send_callback(
+        callback_id=event.callback.callback_id,
+        message=None,
+        notification=None,
+    )

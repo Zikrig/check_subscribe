@@ -195,9 +195,10 @@ async def manage_channels_message(message, *, edit: bool = False):
 
 
 @router.message_created(Command("channels"))
-async def manage_channels_cmd(event: MessageCreated):
+async def manage_channels_cmd(event: MessageCreated, context: MemoryContext):
     if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
         return
+    await context.clear()
     await manage_channels_message(event.message)
 
 
@@ -379,6 +380,9 @@ async def channel_action_handler(event: MessageCallback, context: MemoryContext)
     except ValueError:
         await event.answer()
         return
+
+    if await context.get_state() == ChannelManage.adding_channel:
+        await context.clear()
 
     channel = await get_channel(channel_id)
     if not channel or not event.message:
@@ -582,8 +586,10 @@ async def process_add_channel(event: MessageCreated, context: MemoryContext):
 
     except ValueError:
         await event.message.answer("Ошибка: ID канала должен быть числом.")
+        return
     except Exception as e:
         await event.message.answer(f"Ошибка при добавлении канала: {e!s}")
+        return
 
     await context.clear()
     await manage_channels_message(event.message)
