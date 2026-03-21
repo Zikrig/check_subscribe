@@ -15,10 +15,11 @@ class Settings:
         if not item.strip():
             continue
         chat_id, username = item.split(":")
-        id = int(chat_id.strip())
-        id = -id if id < 0 else id
+        id = chat_id.strip()
+        if not id.startswith("-"):
+            id = "-" + id
         CHANNELS.append(
-            {"id": id, "username": username.strip()}
+            {"id": int(id), "username": username.strip()}
         )
 
     DB_URL = (
