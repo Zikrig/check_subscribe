@@ -3,44 +3,15 @@
 from maxapi import F, Router
 from maxapi.enums.parse_mode import ParseMode
 from maxapi.filters.command import Command
-from maxapi.filters.filter import BaseFilter
 from maxapi.types import MessageCallback, MessageCreated
 
 from app.config import settings
 from app.keyboards import subscription_keyboard
-from app.services.channels import get_all_channels
+from app.services.channels import get_all_channels, user_is_channel_member
 from app.services.promos import get_or_assign_promo
 from app.services.replics import get_replic
 
 router = Router("user")
-
-_cmd_parser = Command("start")
-
-
-class UnknownCommand(BaseFilter):
-    """Текст начинается с /команда, имя не из списка зарегистрированных."""
-
-    RESERVED = frozenset(
-        ("start", "info", "table", "channels", "edit_replics", "stats")
-    )
-
-    async def __call__(self, event: MessageCreated) -> bool:
-        if not isinstance(event, MessageCreated):
-            return False
-        body = event.message.body
-        if body is None:
-            return False
-        text = body.text
-        if not text:
-            return False
-
-        bot_me = event._ensure_bot().me
-        bot_username = bot_me.username or "" if bot_me else ""
-
-        parsed_name, _ = _cmd_parser.parse_command(text, bot_username)
-        if not parsed_name:
-            return False
-        return parsed_name.lower() not in self.RESERVED
 
 
 async def send_start_response(event: MessageCreated) -> None:
@@ -64,6 +35,12 @@ async def start_handler(event: MessageCreated):
     await send_start_response(event)
 
 
+@router.message_created()
+async def any_text_message_as_start(event: MessageCreated):
+    """Всё, что не обработал admin-роутер (команды, FSM), — как /start."""
+    await send_start_response(event)
+
+
 @router.message_callback(F.callback.payload == "check_subs")
 async def check_subs_callback(event: MessageCallback):
     user_id = event.callback.user.user_id
@@ -76,12 +53,7 @@ async def check_subs_callback(event: MessageCallback):
     for ch in channels:
         if not ch.is_active:
             continue
-        try:
-            member = await bot.get_chat_member(ch.id, user_id)
-            if member is None:
-                all_subscribed = False
-                break
-        except Exception:
+        if not await user_is_channel_member(bot, ch.id, user_id):
             all_subscribed = False
             break
 

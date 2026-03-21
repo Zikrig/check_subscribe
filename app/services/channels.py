@@ -1,5 +1,64 @@
-from sqlalchemy import select, delete
+from sqlalchemy import select
+
+from maxapi import Bot
+from maxapi.exceptions.max import MaxApiError
+
 from app.services.db import SessionLocal, Channel
+
+
+def _username_for_url(username: str) -> str:
+    return username.strip().lstrip("@")
+
+
+def normalized_channel_url(username: str, link: str | None) -> str:
+    """Публичная ссылка на канал MAX (в клиенте обычно https://max.ru/@ник)."""
+    if link:
+        s = link.strip()
+        if s.startswith(("http://", "https://")):
+            return s
+        if s.startswith("max.ru/"):
+            return "https://" + s
+    return f"https://max.ru/@{_username_for_url(username)}"
+
+
+async def resolve_channel_url(bot: Bot, channel: Channel) -> str:
+    """Официальная ссылка из API, если бот видит чат; иначе из БД / шаблон max.ru/@…"""
+    try:
+        chat = await bot.get_chat_by_id(channel.id)
+        if chat.link:
+            return chat.link
+    except Exception:
+        pass
+    return normalized_channel_url(channel.username, channel.link)
+
+
+async def user_is_channel_member(bot: Bot, chat_id: int, user_id: int) -> bool:
+    """
+    Проверка участия через GET …/members?user_ids=…
+    Если список пуст (иногда так отвечает API), ищем пользователя в первых страницах списка.
+    """
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        if member is not None:
+            return True
+    except MaxApiError:
+        return False
+    except Exception:
+        return False
+
+    marker: int | None = None
+    for _ in range(30):
+        try:
+            page = await bot.get_chat_members(chat_id, marker=marker, count=100)
+        except Exception:
+            return False
+        for m in page.members:
+            if m.user_id == user_id:
+                return True
+        marker = page.marker
+        if marker is None:
+            break
+    return False
 
 async def get_all_channels():
     async with SessionLocal() as session:
@@ -54,7 +113,7 @@ async def add_channel(channel_id: int, username: str, name: str = None, link: st
             id=channel_id,
             username=username,
             name=name or username,
-            link=link or f"https://max.ru/{username.lstrip('@')}",
+            link=link or normalized_channel_url(username, None),
             is_active=True
         )
         session.add(new_channel)

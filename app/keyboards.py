@@ -6,7 +6,11 @@ from maxapi.types.attachments.attachment import Attachment
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
 from app.config import settings
-from app.services.channels import get_all_channels
+from app.services.channels import (
+    get_all_channels,
+    resolve_channel_url,
+    user_is_channel_member,
+)
 
 
 async def subscription_keyboard(bot: Bot, user_id: int) -> Attachment:
@@ -18,15 +22,11 @@ async def subscription_keyboard(bot: Bot, user_id: int) -> Attachment:
         if not ch.is_active:
             continue
 
-        try:
-            member = await bot.get_chat_member(ch.id, user_id)
-            subscribed = member is not None
-        except Exception:
-            subscribed = False
+        subscribed = await user_is_channel_member(bot, ch.id, user_id)
 
         emoji = "✅" if subscribed else "❌"
         display_name = ch.name or ch.username
-        url = ch.link or f"https://max.ru/{ch.username.lstrip('@')}"
+        url = await resolve_channel_url(bot, ch)
         builder.row(LinkButton(text=f"{emoji} {display_name}", url=url))
 
     builder.row(CallbackButton(text="Я подписался", payload="check_subs"))
