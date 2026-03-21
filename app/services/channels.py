@@ -1,9 +1,13 @@
+import logging
+
 from sqlalchemy import select
 
 from maxapi import Bot
 from maxapi.exceptions.max import MaxApiError
 
 from app.services.db import SessionLocal, Channel
+
+logger = logging.getLogger(__name__)
 
 
 def _username_for_url(username: str) -> str:
@@ -64,6 +68,36 @@ async def get_all_channels():
     async with SessionLocal() as session:
         result = await session.execute(select(Channel))
         return result.scalars().all()
+
+
+async def log_channels_at_startup(bot: Bot) -> None:
+    """Пишет в лог все каналы из БД и сведения из MAX API (get_chat_by_id)."""
+    channels = await get_all_channels()
+    logger.info("Загружено каналов: %s", len(channels))
+    for i, ch in enumerate(channels, start=1):
+        logger.info(
+            "  [%s] БД: id=%s username=%s name=%s is_active=%s link=%s",
+            i,
+            ch.id,
+            ch.username,
+            ch.name,
+            ch.is_active,
+            ch.link,
+        )
+        try:
+            chat = await bot.get_chat_by_id(ch.id)
+            logger.info(
+                "      MAX API: title=%r link=%s participants=%s is_public=%s",
+                chat.title,
+                chat.link,
+                chat.participants_count,
+                chat.is_public,
+            )
+        except MaxApiError as e:
+            logger.warning("      MAX API: ошибка %s %s", e.code, e)
+        except Exception as e:
+            logger.warning("      MAX API: %s", e)
+
 
 async def get_channel(channel_id: int):
     async with SessionLocal() as session:

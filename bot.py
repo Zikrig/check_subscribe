@@ -7,6 +7,7 @@ from maxapi import Bot, Dispatcher
 
 from app.config import settings
 from app.handlers import admin, user
+from app.services.channels import log_channels_at_startup
 from app.services.db import init_db
 from app.services.sheets import periodic_update
 
@@ -23,6 +24,8 @@ async def main():
     bot = Bot(token=settings.BOT_TOKEN)
     dp = Dispatcher()
     dp.include_routers(admin.router, user.router)
+
+    await log_channels_at_startup(bot)
 
     asyncio.create_task(periodic_update())
 
