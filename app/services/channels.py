@@ -18,7 +18,7 @@ def normalized_channel_url(username: str, link: str | None) -> str:
             return s
         if s.startswith("max.ru/"):
             return "https://" + s
-    return f"https://max.ru/@{_username_for_url(username)}"
+    return f"https://max.ru/{_username_for_url(username)}"
 
 
 async def resolve_channel_url(bot: Bot, channel: Channel) -> str:
