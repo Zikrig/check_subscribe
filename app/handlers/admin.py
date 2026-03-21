@@ -15,6 +15,7 @@ from app.services.channels import (
     delete_channel,
     get_all_channels,
     get_channel,
+    resolve_max_chat_id,
     toggle_channel,
     update_channel,
 )
@@ -533,6 +534,7 @@ async def add_channel_handler(event: MessageCallback, context: MemoryContext):
             text=(
                 "Введите данные канала в формате:\n"
                 "id username [name] [link]\n\n"
+                "id — chat_id из MAX (часто с минусом в начале, см. list_max_chats.py).\n\n"
                 "Пример:\n"
                 "-10012345678 channel_username Название канала "
                 "https://example.com/channel"
@@ -558,7 +560,8 @@ async def process_add_channel(event: MessageCreated, context: MemoryContext):
             )
             return
 
-        channel_id = int(parts[0])
+        bot = event._ensure_bot()
+        channel_id = await resolve_max_chat_id(bot, int(parts[0]))
         username = parts[1]
         name = " ".join(parts[2:]) if len(parts) > 2 else None
         link = None

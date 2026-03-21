@@ -64,6 +64,37 @@ async def user_is_channel_member(bot: Bot, chat_id: int, user_id: int) -> bool:
             break
     return False
 
+
+async def resolve_max_chat_id(bot: Bot, channel_id: int) -> int:
+    """
+    У MAX у каналов/чатов chat_id часто отрицательный. Если ввели +id без минуса,
+    get_chat_by_id даёт 404 — тогда пробуем -id.
+    """
+    try:
+        await bot.get_chat_by_id(channel_id)
+        return channel_id
+    except MaxApiError as e:
+        if e.code != 404:
+            return channel_id
+    except Exception:
+        return channel_id
+
+    if channel_id <= 0:
+        return channel_id
+
+    alt = -channel_id
+    try:
+        await bot.get_chat_by_id(alt)
+        logger.info(
+            "chat_id исправлен: %s → %s (чат найден только с отрицательным id)",
+            channel_id,
+            alt,
+        )
+        return alt
+    except Exception:
+        return channel_id
+
+
 async def get_all_channels():
     async with SessionLocal() as session:
         result = await session.execute(select(Channel))
@@ -97,6 +128,18 @@ async def log_channels_at_startup(bot: Bot) -> None:
             logger.warning("      MAX API: ошибка %s %s", e.code, e)
         except Exception as e:
             logger.warning("      MAX API: %s", e)
+
+    by_abs: dict[int, list[int]] = {}
+    for ch in channels:
+        by_abs.setdefault(abs(ch.id), []).append(ch.id)
+    for a, ids in by_abs.items():
+        if len(set(ids)) > 1:
+            logger.warning(
+                "Одинаковый |id|=%s при разных знаках: %s — лишняя запись или ошибка без «-». "
+                "Оставьте один id как в MAX (list_max_chats.py).",
+                a,
+                ids,
+            )
 
 
 async def get_channel(channel_id: int):

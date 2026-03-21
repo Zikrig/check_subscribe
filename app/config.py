@@ -14,8 +14,10 @@ class Settings:
     for item in raw_channels:
         if not item.strip():
             continue
-        chat_id, username = item.split(":")
-        CHANNELS.append({"id": int(chat_id), "username": username})
+        chat_id, username = item.split(":", 1)
+        CHANNELS.append(
+            {"id": int(chat_id.strip()), "username": username.strip()}
+        )
 
     DB_URL = (
         f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
