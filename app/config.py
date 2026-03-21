@@ -16,8 +16,8 @@ class Settings:
             continue
         chat_id, username = item.split(":")
         id = chat_id.strip()
-        if not id.startswith("-"):
-            id = "-" + id
+        # if not id.startswith("-"):
+        #     id = "-" + id
         CHANNELS.append(
             {"id": int(id), "username": username.strip()}
         )
