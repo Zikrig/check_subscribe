@@ -26,7 +26,7 @@ async def subscription_keyboard(bot: Bot, user_id: int) -> Attachment:
 
         emoji = "✅" if subscribed else "❌"
         display_name = ch.name or ch.username
-        url = ch.link or f"https://t.me/{ch.username.lstrip('@')}"
+        url = ch.link or f"https://max.ru/{ch.username.lstrip('@')}"
         builder.row(LinkButton(text=f"{emoji} {display_name}", url=url))
 
     builder.row(CallbackButton(text="Я подписался", payload="check_subs"))

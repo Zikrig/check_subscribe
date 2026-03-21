@@ -3,6 +3,7 @@
 from maxapi import F, Router
 from maxapi.enums.parse_mode import ParseMode
 from maxapi.filters.command import Command
+from maxapi.filters.filter import BaseFilter
 from maxapi.types import MessageCallback, MessageCreated
 
 from app.config import settings
@@ -13,9 +14,36 @@ from app.services.replics import get_replic
 
 router = Router("user")
 
+_cmd_parser = Command("start")
 
-@router.message_created(Command("start"))
-async def start_handler(event: MessageCreated):
+
+class UnknownCommand(BaseFilter):
+    """Текст начинается с /команда, имя не из списка зарегистрированных."""
+
+    RESERVED = frozenset(
+        ("start", "info", "table", "channels", "edit_replics", "stats")
+    )
+
+    async def __call__(self, event: MessageCreated) -> bool:
+        if not isinstance(event, MessageCreated):
+            return False
+        body = event.message.body
+        if body is None:
+            return False
+        text = body.text
+        if not text:
+            return False
+
+        bot_me = event._ensure_bot().me
+        bot_username = bot_me.username or "" if bot_me else ""
+
+        parsed_name, _ = _cmd_parser.parse_command(text, bot_username)
+        if not parsed_name:
+            return False
+        return parsed_name.lower() not in self.RESERVED
+
+
+async def send_start_response(event: MessageCreated) -> None:
     if not event.message.sender:
         return
 
@@ -29,6 +57,11 @@ async def start_handler(event: MessageCreated):
         await event.message.answer(
             "Привет, админ! Используй /info для списка команд."
         )
+
+
+@router.message_created(Command("start"))
+async def start_handler(event: MessageCreated):
+    await send_start_response(event)
 
 
 @router.message_callback(F.callback.payload == "check_subs")

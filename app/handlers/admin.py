@@ -10,6 +10,7 @@ from maxapi.types import CallbackButton, MessageCallback, MessageCreated
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
 from app.config import settings
+from app.handlers.user import UnknownCommand, send_start_response
 from app.services.channels import (
     add_channel,
     delete_channel,
@@ -564,7 +565,7 @@ async def process_add_channel(event: MessageCreated, context: MemoryContext):
         link = None
 
         for part in parts[2:]:
-            if part.startswith(("http://", "https://", "t.me/")):
+            if part.startswith(("http://", "https://", "max.ru/")):
                 link = part
                 if name:
                     name = name.replace(part, "").strip()
@@ -584,3 +585,8 @@ async def process_add_channel(event: MessageCreated, context: MemoryContext):
 
     await context.clear()
     await manage_channels_message(event.message)
+
+
+@router.message_created(UnknownCommand())
+async def unknown_command_as_start(event: MessageCreated):
+    await send_start_response(event)

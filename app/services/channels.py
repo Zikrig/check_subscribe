@@ -27,8 +27,8 @@ async def update_channel(channel_id: int, name: str = None, link: str = None):
                 channel.name = name
             if link is not None:
                 # Validate link format
-                if not link.startswith(('https://', 'http://', 't.me/')):
-                    raise ValueError("Ссылка должна начинаться с https://, http:// или t.me/")
+                if not link.startswith(('https://', 'http://', 'max.ru/')):
+                    raise ValueError("Ссылка должна начинаться с https://, http:// или max.ru/")
                 channel.link = link
             await session.commit()
             return True
@@ -54,7 +54,7 @@ async def add_channel(channel_id: int, username: str, name: str = None, link: st
             id=channel_id,
             username=username,
             name=name or username,
-            link=link or f"https://t.me/{username.lstrip('@')}",
+            link=link or f"https://max.ru/{username.lstrip('@')}",
             is_active=True
         )
         session.add(new_channel)

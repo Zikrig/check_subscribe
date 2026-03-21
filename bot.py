@@ -22,7 +22,7 @@ async def main():
     await init_db()
     bot = Bot(token=settings.BOT_TOKEN)
     dp = Dispatcher()
-    dp.include_routers(user.router, admin.router)
+    dp.include_routers(admin.router, user.router)
 
     asyncio.create_task(periodic_update())
 
