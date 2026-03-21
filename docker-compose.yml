@@ -3,7 +3,7 @@ version: "3.9"
 services:
   db:
     image: postgres:16
-    container_name: promo_db
+    container_name: promo_db_nax
     restart: always
     env_file:
       - .env
@@ -18,7 +18,7 @@ services:
 
   bot:
     build: .
-    container_name: promo_bot
+    container_name: promo_bot_max
     restart: always
     depends_on:
       - db
