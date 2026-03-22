@@ -13,8 +13,9 @@ def _nick_for_max_url(username: str) -> str:
 
 async def get_bot_share_url(bot: Bot) -> str | None:
     """https://max.ru/ник или BOT_SHARE_URL из .env."""
-    if settings.BOT_SHARE_URL:
-        return settings.BOT_SHARE_URL
+    override = getattr(settings, "BOT_SHARE_URL", None)
+    if override:
+        return override
     try:
         me = await bot.get_me()
         if me.username:
