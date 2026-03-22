@@ -9,7 +9,7 @@ async def get_replic(name: str) -> str:
 
     default_replics = {
         "start_message": "Привет! Подпишись на наши каналы:",
-        "success_message": "Все подписки выполнены!\nТвой промокод: <code>{promo}</code>",
+        "success_message": "Все подписки выполнены!",
         "not_subbed_message": "Похоже, ты ещё не подписан на все каналы. Проверь и нажми кнопку снова.",
     }
     return default_replics.get(name, "")

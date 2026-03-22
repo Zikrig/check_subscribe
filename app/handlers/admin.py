@@ -91,7 +91,7 @@ async def cmd_edit_replics(event: MessageCreated, context: MemoryContext):
     )
     kb.row(
         CallbackButton(text="Сообщение об успехе", payload="edit_success")
-        )
+    )
     kb.row(
         CallbackButton(text="Сообщение о неподписке", payload="edit_not_subbed"),
     )

@@ -14,6 +14,16 @@ def _resolve_data_json_path() -> Path:
     return p
 
 
+def _resolve_optional_path(env_name: str) -> Path | None:
+    raw = os.getenv(env_name, "").strip()
+    if not raw:
+        return None
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    return p
+
+
 class Settings:
     # Токен бота MAX: https://dev.max.ru/docs/chatbots/bots-nocode/manage
     # Поддерживаются MAX_BOT_TOKEN и BOT_TOKEN (для обратной совместимости)
@@ -34,6 +44,9 @@ class Settings:
 
     # Один JSON-файл вместо PostgreSQL (см. app.services.storage)
     DATA_JSON_PATH = _resolve_data_json_path()
+
+    # Приветственная картинка для /start и кнопки «Начало» (локальный файл)
+    START_IMAGE_PATH = _resolve_optional_path("START_IMAGE_PATH")
 
     SHEET_ID = os.getenv("SHEET_ID")
 
