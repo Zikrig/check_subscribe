@@ -129,14 +129,19 @@ async def check_subs_callback(event: MessageCallback):
                 text=f"<code>{html.escape(promo)}</code>",
                 parse_mode=ParseMode.HTML,
             )
+            cap = (await get_replic("promo_followup_message")).strip()
             img_path = await resolve_promo_followup_image_path()
             if img_path is not None:
-                cap = (await get_replic("promo_followup_message")).strip()
                 text = cap if cap else "\u200b"
                 await event.message.answer(
                     text=text,
                     attachments=[InputMedia(str(img_path))],
                     parse_mode=ParseMode.HTML if cap else None,
+                )
+            elif cap:
+                await event.message.answer(
+                    text=cap,
+                    parse_mode=ParseMode.HTML,
                 )
     else:
         not_subbed_text = await get_replic("not_subbed_message")

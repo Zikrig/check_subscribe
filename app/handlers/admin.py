@@ -197,12 +197,12 @@ async def _promo_followup_menu_text() -> str:
     text = await get_replic("promo_followup_message")
     text_preview = text.strip() if text else "(пусто)"
     lines = [
-        "Сообщение об акции: отправляется после промокода (если задана картинка).",
+        "Сообщение об акции: третье сообщение после промокода.",
         "",
         f"Картинка: {'загружена' if has_img else 'не задана'}.",
-        f"Текст (подпись к картинке): {text_preview}",
+        f"Текст: {text_preview}",
         "",
-        "Без картинки третье сообщение не отправляется.",
+        "Без текста и без картинки третье сообщение не отправляется.",
     ]
     return "\n".join(lines)
 
@@ -366,7 +366,9 @@ async def save_start_image_from_upload(event: MessageCreated, context: MemoryCon
 
     url = first_image_url_from_message_body(event.message.body)
     if not url:
-        await event.message.answer("Нужно отправить изображение (фото).")
+        await event.message.answer(
+            "Не удалось принять вложение. Отправьте как фото или как файл-картинку (png, jpg…)."
+        )
         return
 
     try:
@@ -377,6 +379,7 @@ async def save_start_image_from_upload(event: MessageCreated, context: MemoryCon
 
     await context.set_state(EditStartImage.menu)
     text = await _start_image_menu_text()
+    await event.message.answer("Картинка сохранена.")
     await event.message.answer(
         text=text,
         attachments=[_start_image_menu_keyboard().as_markup()],
@@ -497,7 +500,9 @@ async def save_promo_followup_from_upload(event: MessageCreated, context: Memory
 
     url = first_image_url_from_message_body(event.message.body)
     if not url:
-        await event.message.answer("Нужно отправить изображение (фото).")
+        await event.message.answer(
+            "Не удалось принять вложение. Отправьте как фото или как файл-картинку (png, jpg…)."
+        )
         return
 
     try:
@@ -508,6 +513,7 @@ async def save_promo_followup_from_upload(event: MessageCreated, context: Memory
 
     await context.set_state(EditPromoFollowup.menu)
     text = await _promo_followup_menu_text()
+    await event.message.answer("Картинка сохранена.")
     await event.message.answer(
         text=text,
         attachments=[_promo_followup_menu_keyboard().as_markup()],

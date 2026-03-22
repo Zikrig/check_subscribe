@@ -103,22 +103,38 @@ async def delete_stored_start_image() -> None:
     await mutate_store(_clear)
 
 
+def _looks_like_image_path(name: str) -> bool:
+    lower = name.lower()
+    return any(
+        lower.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif")
+    )
+
+
 def first_image_url_from_message_body(body) -> str | None:
-    """Первый URL из вложения типа image (входящее сообщение админа)."""
+    """URL картинки: вложение image или file с расширением изображения."""
     if not body or not body.attachments:
         return None
     from maxapi.enums.attachment import AttachmentType
 
     for att in body.attachments:
         t = att.type
-        is_image = t == AttachmentType.IMAGE or t == "image"
-        if not is_image:
-            continue
         if att.payload is None:
             continue
         url = getattr(att.payload, "url", None)
-        if url:
+        if not url:
+            continue
+
+        if t == AttachmentType.IMAGE or t == "image":
             return url
+
+        if t == AttachmentType.FILE or t == "file":
+            fn = getattr(att, "filename", None) or ""
+            if _looks_like_image_path(fn):
+                return url
+            path = urlparse(url).path
+            if _looks_like_image_path(path):
+                return url
+
     return None
 
 
