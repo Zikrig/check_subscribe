@@ -71,26 +71,35 @@ async def mutate_store(fn: Callable[[dict[str, Any]], T]) -> T:
 
 
 async def init_storage() -> None:
-    """Создаёт файл при отсутствии, подмешивает каналы из .env и счётчик."""
+    """
+    Создаёт файл при отсутствии, дополняет счётчики при необходимости.
+
+    Каналы из .env (CHANNELS) подмешиваются только если store.json ещё не было —
+    первый запуск. Если файл уже есть, список каналов берётся только из JSON
+    (управление через /channels в боте).
+    """
     async with _lock:
         path = settings.DATA_JSON_PATH
-        if not path.exists():
+        file_existed = path.exists()
+        if not file_existed:
             data = _empty_store()
         else:
             data = _load_sync(path)
         data = _normalize(data)
         changed = False
-        for ch in settings.CHANNELS:
-            sid = str(ch["id"])
-            if sid not in data["channels"]:
-                un = ch["username"]
-                data["channels"][sid] = {
-                    "username": un,
-                    "name": un,
-                    "link": None,
-                    "is_active": True,
-                }
-                changed = True
+
+        if not file_existed:
+            for ch in settings.CHANNELS:
+                sid = str(ch["id"])
+                if sid not in data["channels"]:
+                    un = ch["username"]
+                    data["channels"][sid] = {
+                        "username": un,
+                        "name": un,
+                        "link": None,
+                        "is_active": True,
+                    }
+                    changed = True
         if data["counters"].get("promos_issued") is None:
             data["counters"]["promos_issued"] = 0
             changed = True
