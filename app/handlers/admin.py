@@ -222,7 +222,7 @@ def _promo_followup_wait_keyboard() -> InlineKeyboardBuilder:
     """Кнопка без видимого текста + отмена (при ожидании фото)."""
     kb = InlineKeyboardBuilder()
     kb.row(
-        CallbackButton(text="\u200b", payload="promo_fw_nop"),
+        CallbackButton(text="Без картинки", payload="promo_fw_nop"),
         CallbackButton(text="❌ Отменить", payload="promo_fw_cancel"),
     )
     return kb
