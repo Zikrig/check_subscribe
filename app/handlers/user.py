@@ -14,7 +14,6 @@ from maxapi.types.updates.bot_started import BotStarted
 from app.callback_ack import send_callback_ack
 from app.config import settings
 from app.keyboards import subscription_keyboard
-from app.services.bot_link import get_bot_share_url
 from app.services.bot_started_description import (
     resolve_bot_started_description_image_path,
 )
@@ -159,19 +158,9 @@ async def check_subs_callback(event: MessageCallback):
             parse_mode=ParseMode.HTML,
         )
         if promo:
-            promo_attachments = []
-            share_url = await get_bot_share_url(bot)
-            if share_url:
-                share_kb = InlineKeyboardBuilder()
-                share_kb.row(
-                    LinkButton(text="Поделиться ботом", url=share_url)
-                )
-                promo_attachments = [share_kb.as_markup()]
-
             await event.message.answer(
                 text=f"<code>{html.escape(promo)}</code>",
                 parse_mode=ParseMode.HTML,
-                attachments=promo_attachments,
             )
             cap = (await get_replic("promo_followup_message")).strip()
             img_path = await resolve_promo_followup_image_path()
