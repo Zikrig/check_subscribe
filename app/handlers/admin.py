@@ -13,7 +13,7 @@ from app.services.channels import (
     delete_channel,
     get_all_channels,
     get_channel,
-    resolve_max_chat_id,
+    parse_admin_channel_input,
     toggle_channel,
     update_channel,
 )
@@ -541,12 +541,13 @@ async def add_channel_handler(event: MessageCallback, context: MemoryContext):
     if event.message:
         await event.message.edit(
             text=(
-                "Введите данные канала в формате:\n"
-                "id username [name] [link]\n\n"
-                "id — chat_id из MAX (часто с минусом в начале, см. list_max_chats.py).\n\n"
-                "Пример:\n"
-                "-10012345678 channel_username Название канала "
-                "https://example.com/channel"
+                "Отправьте ссылку на канал в MAX — одной строкой, например:\n"
+                "https://max.ru/@channel\n"
+                "или коротко: @channel\n\n"
+                "Бот сам получит id и название через API.\n\n"
+                "Либо старый формат (если нужно вручную):\n"
+                "id username [название] [ссылка]\n"
+                "Пример: -10012345678 my_channel Название https://max.ru/@my_channel"
             ),
             attachments=[kb.as_markup()],
         )
@@ -562,26 +563,10 @@ async def process_add_channel(event: MessageCreated, context: MemoryContext):
 
     text = event.message.body.text
     try:
-        parts = text.split()
-        if len(parts) < 2:
-            await event.message.answer(
-                "Ошибка: недостаточно данных. Нужно как минимум id и username."
-            )
-            return
-
         bot = event._ensure_bot()
-        channel_id = await resolve_max_chat_id(bot, int(parts[0]))
-        username = parts[1]
-        name = " ".join(parts[2:]) if len(parts) > 2 else None
-        link = None
-
-        for part in parts[2:]:
-            if part.startswith(("http://", "https://", "max.ru/")):
-                link = part
-                if name:
-                    name = name.replace(part, "").strip()
-                break
-
+        channel_id, username, name, link = await parse_admin_channel_input(
+            bot, text
+        )
         success = await add_channel(channel_id, username, name, link)
 
         if success:
@@ -589,8 +574,8 @@ async def process_add_channel(event: MessageCreated, context: MemoryContext):
         else:
             await event.message.answer("Ошибка: канал с таким ID уже существует.")
 
-    except ValueError:
-        await event.message.answer("Ошибка: ID канала должен быть числом.")
+    except ValueError as e:
+        await event.message.answer(str(e) or "Ошибка ввода.")
         return
     except Exception as e:
         await event.message.answer(f"Ошибка при добавлении канала: {e!s}")

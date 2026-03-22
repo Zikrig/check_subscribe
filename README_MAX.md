@@ -17,7 +17,7 @@
 | `MAX_BOT_TOKEN` или `BOT_TOKEN` | Токен бота из кабинета MAX |
 | `CHANNELS` | Список каналов: `chat_id:username,...` — **ID чатов каналов в MAX** (не Telegram). Укажите ссылки на каналы в БД (`link`) или задайте корректный URL в настройках. |
 | `ADMINS` | ID администраторов в MAX (через запятую) |
-| `DATA_JSON_PATH` | Путь к JSON-хранилищу (по умолчанию `data/store.json`): промокоды, реплики, каналы, счётчики |
+| `DATA_JSON_PATH` | Путь к JSON-хранилищу (локально по умолчанию `data/store.json`). В `docker-compose` данные лежат в томе `bot_data` → `/app/data/store.json`, пересборка образа их не стирает |
 | Остальное | Google Sheets (`SHEET_ID`), `creds.json` для таблицы — как раньше |
 
 ## Проверка подписок
@@ -34,3 +34,7 @@ python bot.py
 ```
 
 В Docker образе используется Python 3.11 (как в `Dockerfile`).
+
+### Данные в Docker
+
+Каталог `/app/data` смонтирован отдельным томом `bot_data`, файл `store.json` в нём **не** совпадает с `./data/store.json` на хосте (том перекрывает bind-монтирование проекта). Бэкап: `docker volume inspect` / экспорт тома.

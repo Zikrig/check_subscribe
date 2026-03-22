@@ -7,8 +7,15 @@ services:
     restart: always
     env_file:
       - .env
+    # JSON-хранилище в именованном томе — переживает docker compose build/up без потери данных
+    environment:
+      DATA_JSON_PATH: /app/data/store.json
     volumes:
       - .:/app
+      - bot_data:/app/data
     dns:
       - 1.1.1.1
       - 8.8.8.8
+
+volumes:
+  bot_data:

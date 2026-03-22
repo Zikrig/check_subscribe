@@ -1,7 +1,11 @@
 import logging
+from re import findall
 
 from maxapi import Bot
 from maxapi.exceptions.max import MaxApiError
+
+# Как в maxapi.methods.get_chat_by_link.GetChatByLink.PATTERN_LINK
+_LINK_USERNAME_PATTERN = r"@?[a-zA-Z]+[a-zA-Z0-9-_]*"
 
 from app.services.db import Channel
 from app.services.storage import mutate_store, read_store
@@ -92,6 +96,76 @@ async def resolve_max_chat_id(bot: Bot, channel_id: int) -> int:
         return alt
     except Exception:
         return channel_id
+
+
+def _username_tail_from_link_string(link: str) -> str:
+    """Последний фрагмент, по которому MAX резолвит чат в GET /chats/{link} (как в maxapi)."""
+    parts = findall(_LINK_USERNAME_PATTERN, link)
+    if not parts:
+        raise ValueError(
+            "Не удалось извлечь ник из строки (нужна ссылка max.ru или @ник)."
+        )
+    return parts[-1].lstrip("@")
+
+
+async def resolve_channel_from_link_only(
+    bot: Bot, link: str
+) -> tuple[int, str, str | None, str | None]:
+    """
+    Один ввод: публичная ссылка или @username.
+    Возвращает (chat_id, username, name, link) для add_channel.
+    """
+    link = link.strip()
+    if not link:
+        raise ValueError("Пустая строка.")
+    try:
+        chat = await bot.get_chat_by_link(link)
+    except ValueError as e:
+        raise ValueError(str(e)) from e
+    except MaxApiError as e:
+        raise ValueError(
+            f"Не удалось получить канал по ссылке (код {e.code}). "
+            "Проверьте ссылку и что бот видит этот чат."
+        ) from e
+
+    username = _username_tail_from_link_string(link)
+    channel_id = await resolve_max_chat_id(bot, chat.chat_id)
+    name = chat.title or username
+    stored_link = chat.link or normalized_channel_url(username, None)
+    return channel_id, username, name, stored_link
+
+
+async def parse_admin_channel_input(
+    bot: Bot, text: str
+) -> tuple[int, str, str | None, str | None]:
+    """
+    Добавление канала из админки:
+    - одна строка — ссылка (https://max.ru/…, max.ru/…) или @ник;
+    - или legacy: «id username [название] [ссылка]» (первое поле — число, второе — ник).
+    """
+    text = text.strip()
+    if not text:
+        raise ValueError("Пустой ввод.")
+    parts = text.split()
+    if len(parts) >= 2:
+        try:
+            first_id = int(parts[0])
+        except ValueError:
+            first_id = None
+        if first_id is not None:
+            channel_id = await resolve_max_chat_id(bot, first_id)
+            username = parts[1]
+            name = " ".join(parts[2:]) if len(parts) > 2 else None
+            link: str | None = None
+            for part in parts[2:]:
+                if part.startswith(("http://", "https://", "max.ru/")):
+                    link = part
+                    if name:
+                        name = name.replace(part, "").strip() or None
+                    break
+            return channel_id, username, name, link
+
+    return await resolve_channel_from_link_only(bot, text)
 
 
 def _row_to_channel(sid: str, row: dict) -> Channel:
