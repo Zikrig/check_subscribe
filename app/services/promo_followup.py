@@ -102,3 +102,24 @@ async def delete_stored_promo_followup_image() -> None:
 async def has_stored_promo_followup_image() -> bool:
     p = await resolve_promo_followup_image_path()
     return p is not None
+
+
+def normalize_promo_followup_button_url(raw: str | None) -> str | None:
+    if not raw or not str(raw).strip():
+        return None
+    u = str(raw).strip()
+    if not (u.startswith("http://") or u.startswith("https://")):
+        return None
+    return u
+
+
+async def get_promo_followup_button_url() -> str | None:
+    data = await read_store()
+    return normalize_promo_followup_button_url(data.get("promo_followup_button_url"))
+
+
+async def clear_promo_followup_button_url() -> None:
+    def _fn(data: dict) -> None:
+        data["promo_followup_button_url"] = None
+
+    await mutate_store(_fn)

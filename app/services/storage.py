@@ -22,6 +22,7 @@ def _empty_store() -> dict[str, Any]:
         "counters": {"promos_issued": 0},
         "start_image_file": None,
         "promo_followup_file": None,
+        "promo_followup_button_url": None,
         "bot_started_description_file": None,
     }
 

@@ -26,8 +26,10 @@ from app.services.bot_started_description import (
     replace_stored_bot_started_description_image,
 )
 from app.services.promo_followup import (
+    clear_promo_followup_button_url,
     delete_stored_promo_followup_image,
     has_stored_promo_followup_image,
+    normalize_promo_followup_button_url,
     replace_stored_promo_followup_image,
 )
 from app.services.start_image import (
@@ -36,7 +38,7 @@ from app.services.start_image import (
     has_stored_start_image,
     replace_stored_start_image,
 )
-from app.services.storage import mutate_store
+from app.services.storage import mutate_store, read_store
 from app.services.sheets import update_table
 
 router = Router("admin")
@@ -76,6 +78,8 @@ class EditPromoFollowup(StatesGroup):
     menu = State()
     waiting_photo = State()
     editing_text = State()
+    editing_link = State()
+    editing_button_label = State()
 
 
 class EditBotStartedDesc(StatesGroup):
@@ -208,13 +212,17 @@ async def _promo_followup_menu_text() -> str:
     has_img = await has_stored_promo_followup_image()
     text = await get_replic("promo_followup_message")
     text_preview = text.strip() if text else "(пусто)"
+    data = await read_store()
+    raw_link = (data.get("promo_followup_button_url") or "").strip()
+    link_preview = raw_link if raw_link else "(не задана)"
     lines = [
         "Сообщение об акции: третье сообщение после промокода.",
         "",
         f"Картинка: {'загружена' if has_img else 'не задана'}.",
         f"Текст: {text_preview}",
+        f"Ссылка кнопки под акцией: {link_preview}",
         "",
-        "Без текста и без картинки третье сообщение не отправляется.",
+        "Без текста и без картинки блок не отправляется, если не задана ссылка кнопки.",
     ]
     return "\n".join(lines)
 
@@ -226,6 +234,17 @@ def _promo_followup_menu_keyboard() -> InlineKeyboardBuilder:
         CallbackButton(text="Загрузить / заменить фото", payload="promo_fw_upload")
     )
     kb.row(CallbackButton(text="Удалить картинку", payload="promo_fw_delete"))
+    kb.row(
+        CallbackButton(
+            text="Ссылка кнопки под акцией", payload="promo_fw_link"
+        )
+    )
+    kb.row(
+        CallbackButton(text="Удалить ссылку кнопки", payload="promo_fw_link_delete")
+    )
+    kb.row(
+        CallbackButton(text="Текст кнопки ссылки", payload="promo_fw_btn_label")
+    )
     kb.row(CallbackButton(text="Назад", payload="promo_fw_back"))
     return kb
 
@@ -528,6 +547,131 @@ async def promo_followup_delete_stored(event: MessageCallback, context: MemoryCo
             attachments=[_promo_followup_menu_keyboard().as_markup()],
         )
     await _ack_callback(event)
+
+
+@router.message_callback(EditPromoFollowup.menu, F.callback.payload == "promo_fw_link")
+async def promo_followup_begin_link(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditPromoFollowup.editing_link)
+    data = await read_store()
+    current = (data.get("promo_followup_button_url") or "").strip()
+    kb = InlineKeyboardBuilder()
+    kb.row(CallbackButton(text="❌ Отменить", payload="promo_fw_cancel"))
+    if current:
+        head = f"Текущая ссылка:\n{current}\n\nОтправьте новый URL (https://...):"
+    else:
+        head = "Ссылка не задана.\n\nОтправьте URL (https://...):"
+    if event.message:
+        await event.message.edit(text=head, attachments=[kb.as_markup()])
+    await _ack_callback(event)
+
+
+@router.message_callback(EditPromoFollowup.menu, F.callback.payload == "promo_fw_link_delete")
+async def promo_followup_delete_link(event: MessageCallback, context: MemoryContext):
+    await clear_promo_followup_button_url()
+    text = await _promo_followup_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_promo_followup_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(
+    EditPromoFollowup.editing_link, F.callback.payload == "promo_fw_cancel"
+)
+async def promo_followup_cancel_link(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditPromoFollowup.menu)
+    text = await _promo_followup_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_promo_followup_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_created(EditPromoFollowup.editing_link)
+async def save_promo_followup_link(event: MessageCreated, context: MemoryContext):
+    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
+        return
+    if not event.message.body or not event.message.body.text:
+        return
+
+    raw = event.message.body.text.strip()
+    normalized = normalize_promo_followup_button_url(raw)
+    if not normalized:
+        await event.message.answer(
+            "Нужен корректный URL, начинающийся с https:// или http://"
+        )
+        return
+
+    def _save(data):
+        data["promo_followup_button_url"] = normalized
+
+    await mutate_store(_save)
+
+    await context.set_state(EditPromoFollowup.menu)
+    text = await _promo_followup_menu_text()
+    await event.message.answer("Ссылка сохранена.")
+    await event.message.answer(
+        text=text,
+        attachments=[_promo_followup_menu_keyboard().as_markup()],
+    )
+
+
+@router.message_callback(EditPromoFollowup.menu, F.callback.payload == "promo_fw_btn_label")
+async def promo_followup_begin_button_label(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditPromoFollowup.editing_button_label)
+    current = await get_replic("promo_followup_link_button_text")
+    kb = InlineKeyboardBuilder()
+    kb.row(CallbackButton(text="❌ Отменить", payload="promo_fw_cancel"))
+    head = f"Текст на кнопке-ссылке под акцией.\n\nСейчас: {current}\n\nОтправьте новый текст:"
+    if event.message:
+        await event.message.edit(text=head, attachments=[kb.as_markup()])
+    await _ack_callback(event)
+
+
+@router.message_callback(
+    EditPromoFollowup.editing_button_label, F.callback.payload == "promo_fw_cancel"
+)
+async def promo_followup_cancel_button_label(
+    event: MessageCallback, context: MemoryContext
+):
+    await context.set_state(EditPromoFollowup.menu)
+    text = await _promo_followup_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_promo_followup_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_created(EditPromoFollowup.editing_button_label)
+async def save_promo_followup_button_label(event: MessageCreated, context: MemoryContext):
+    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
+        return
+    if not event.message.body or not event.message.body.text:
+        return
+
+    new_text = event.message.body.text.strip()
+    if not new_text:
+        await event.message.answer("Текст не может быть пустым.")
+        return
+
+    def _save(data):
+        data.setdefault("replics", {})["promo_followup_link_button_text"] = new_text
+
+    await mutate_store(_save)
+
+    await context.set_state(EditPromoFollowup.menu)
+    text = await _promo_followup_menu_text()
+    await event.message.answer("Текст кнопки сохранён.")
+    await event.message.answer(
+        text=text,
+        attachments=[_promo_followup_menu_keyboard().as_markup()],
+    )
 
 
 @router.message_callback(

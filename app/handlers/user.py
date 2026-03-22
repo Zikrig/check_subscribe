@@ -21,10 +21,18 @@ from app.services.bot_started_description import (
 from app.services.channels import get_all_channels, user_is_channel_member
 from app.services.promos import get_or_assign_promo
 from app.services.replics import get_replic
-from app.services.promo_followup import resolve_promo_followup_image_path
+from app.services.promo_followup import (
+    get_promo_followup_button_url,
+    resolve_promo_followup_image_path,
+)
 from app.services.start_image import resolve_start_image_path
 
 logger = logging.getLogger(__name__)
+
+# Сообщение перед блоком «акция» (картинка/текст из админки)
+PROMO_BEFORE_FOLLOWUP_TEXT = (
+    "Не забудь воспользоваться приятной акцией для моих подписчиков."
+)
 
 router = Router("user")
 
@@ -151,8 +159,14 @@ async def check_subs_callback(event: MessageCallback):
             parse_mode=ParseMode.HTML,
         )
         if promo:
-            share_url = await get_bot_share_url(bot)
             promo_attachments = []
+            share_url = await get_bot_share_url(bot)
+            if share_url:
+                share_kb = InlineKeyboardBuilder()
+                share_kb.row(
+                    LinkButton(text="Поделиться ботом", url=share_url)
+                )
+                promo_attachments = [share_kb.as_markup()]
 
             await event.message.answer(
                 text=f"<code>{html.escape(promo)}</code>",
@@ -161,17 +175,43 @@ async def check_subs_callback(event: MessageCallback):
             )
             cap = (await get_replic("promo_followup_message")).strip()
             img_path = await resolve_promo_followup_image_path()
+            link_url = await get_promo_followup_button_url()
+            btn_text = (await get_replic("promo_followup_link_button_text")).strip() or "Перейти"
+
+            if img_path is not None or cap or link_url:
+                await event.message.answer(
+                    text=PROMO_BEFORE_FOLLOWUP_TEXT,
+                    parse_mode=ParseMode.HTML,
+                )
             if img_path is not None:
                 text = cap if cap else "\u200b"
+                att = [InputMedia(str(img_path))]
+                if link_url:
+                    link_kb = InlineKeyboardBuilder()
+                    link_kb.row(LinkButton(text=btn_text, url=link_url))
+                    att.append(link_kb.as_markup())
                 await event.message.answer(
                     text=text,
-                    attachments=[InputMedia(str(img_path))],
+                    attachments=att,
                     parse_mode=ParseMode.HTML if cap else None,
                 )
             elif cap:
+                att = []
+                if link_url:
+                    link_kb = InlineKeyboardBuilder()
+                    link_kb.row(LinkButton(text=btn_text, url=link_url))
+                    att.append(link_kb.as_markup())
                 await event.message.answer(
                     text=cap,
                     parse_mode=ParseMode.HTML,
+                    attachments=att,
+                )
+            elif link_url:
+                link_kb = InlineKeyboardBuilder()
+                link_kb.row(LinkButton(text=btn_text, url=link_url))
+                await event.message.answer(
+                    text="\u200b",
+                    attachments=[link_kb.as_markup()],
                 )
     else:
         not_subbed_text = await get_replic("not_subbed_message")
