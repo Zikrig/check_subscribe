@@ -24,6 +24,19 @@ from app.services.sheets import update_table
 
 router = Router("admin")
 
+
+async def _ack_callback(
+    event: MessageCallback, *, notification: str | None = None
+) -> None:
+    """Подтвердить callback без повторной отправки старых attachments (иначе затирается message.edit)."""
+    bot = event._ensure_bot()
+    await bot.send_callback(
+        callback_id=event.callback.callback_id,
+        message=None,
+        notification=notification,
+    )
+
+
 INFO_TEXT = (
     "/start — версия для пользователей\n"
     "/info — список команд\n"
@@ -96,7 +109,7 @@ async def choose_replic_cancel(event: MessageCallback, context: MemoryContext):
     if event.message:
         await event.message.edit(text="Редактирование отменено.", attachments=[])
         await event.message.answer(INFO_TEXT)
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(EditReplic.choosing_replic)
@@ -109,7 +122,7 @@ async def choose_replic(event: MessageCallback, context: MemoryContext):
     }
     replic_name = replic_map.get(payload)
     if not replic_name:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     current_text = await get_replic(replic_name)
@@ -124,7 +137,7 @@ async def choose_replic(event: MessageCallback, context: MemoryContext):
             attachments=[kb.as_markup()],
         )
     await context.set_state(EditReplic.editing_text)
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(EditReplic.editing_text, F.callback.payload == "cancel_edit")
@@ -133,7 +146,7 @@ async def cancel_edit_replic(event: MessageCallback, context: MemoryContext):
     if event.message:
         await event.message.edit(text="Редактирование отменено.", attachments=[])
         await event.message.answer(INFO_TEXT)
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_created(EditReplic.editing_text)
@@ -200,7 +213,7 @@ async def channel_toggle_handler(event: MessageCallback):
     try:
         channel_id = int(raw)
     except ValueError:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     success = await toggle_channel(channel_id)
@@ -246,7 +259,7 @@ async def channel_toggle_handler(event: MessageCallback):
                 ),
                 attachments=[kb.as_markup()],
             )
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload.startswith("edit_name_"))
@@ -255,7 +268,7 @@ async def channel_edit_name_handler(event: MessageCallback, context: MemoryConte
     try:
         channel_id = int(raw)
     except ValueError:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     await context.update_data(channel_id=channel_id)
@@ -269,7 +282,7 @@ async def channel_edit_name_handler(event: MessageCallback, context: MemoryConte
             text="Введите новое название канала:",
             attachments=[kb.as_markup()],
         )
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload.startswith("edit_link_"))
@@ -278,7 +291,7 @@ async def channel_edit_link_handler(event: MessageCallback, context: MemoryConte
     try:
         channel_id = int(raw)
     except ValueError:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     await context.update_data(channel_id=channel_id)
@@ -295,7 +308,7 @@ async def channel_edit_link_handler(event: MessageCallback, context: MemoryConte
             ),
             attachments=[kb.as_markup()],
         )
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload.startswith("delete_"))
@@ -305,7 +318,7 @@ async def channel_delete_handler(event: MessageCallback, context: MemoryContext)
     try:
         channel_id = int(raw)
     except ValueError:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     await context.update_data(channel_id=channel_id)
@@ -313,7 +326,7 @@ async def channel_delete_handler(event: MessageCallback, context: MemoryContext)
 
     channel = await get_channel(channel_id)
     if not channel or not event.message:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     kb = InlineKeyboardBuilder()
@@ -333,7 +346,7 @@ async def channel_delete_handler(event: MessageCallback, context: MemoryContext)
         ),
         attachments=[kb.as_markup()],
     )
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload.startswith("confirm_delete_"))
@@ -342,7 +355,7 @@ async def channel_confirm_delete_handler(event: MessageCallback, context: Memory
     try:
         channel_id = int(raw)
     except ValueError:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     success = await delete_channel(channel_id)
@@ -351,7 +364,7 @@ async def channel_confirm_delete_handler(event: MessageCallback, context: Memory
         await manage_channels_message(event.message)
 
     await context.clear()
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload == "cancel_channels")
@@ -360,7 +373,7 @@ async def cancel_channels_handler(event: MessageCallback, context: MemoryContext
     if event.message:
         await event.message.edit(text="Управление каналами завершено.", attachments=[])
         await event.message.answer(INFO_TEXT)
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload.startswith("channel_"))
@@ -370,7 +383,7 @@ async def channel_action_handler(event: MessageCallback, context: MemoryContext)
     try:
         channel_id = int(raw)
     except ValueError:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     if await context.get_state() == ChannelManage.adding_channel:
@@ -378,7 +391,7 @@ async def channel_action_handler(event: MessageCallback, context: MemoryContext)
 
     channel = await get_channel(channel_id)
     if not channel or not event.message:
-        await event.answer(notification="Канал не найден")
+        await _ack_callback(event, notification="Канал не найден")
         return
 
     await context.update_data(channel_id=channel_id)
@@ -416,7 +429,7 @@ async def channel_action_handler(event: MessageCallback, context: MemoryContext)
         ),
         attachments=[kb.as_markup()],
     )
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_created(ChannelManage.editing_name)
@@ -482,7 +495,7 @@ async def cmd_stats(event: MessageCreated):
 @router.message_callback(F.callback.payload == "reset_counter")
 async def reset_counter_handler(event: MessageCallback):
     if event.callback.user.user_id not in settings.ADMINS:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     kb = InlineKeyboardBuilder()
@@ -496,26 +509,26 @@ async def reset_counter_handler(event: MessageCallback):
             text="Вы уверены, что хотите обнулить счетчик?",
             attachments=[kb.as_markup()],
         )
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload == "confirm_reset")
 async def confirm_reset_handler(event: MessageCallback):
     if event.callback.user.user_id not in settings.ADMINS:
-        await event.answer()
+        await _ack_callback(event)
         return
 
     await reset_counter()
     if event.message:
         await event.message.edit(text="Счетчик обнулен!", attachments=[])
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload == "cancel_reset")
 async def cancel_reset_handler(event: MessageCallback):
     if event.message:
         await event.message.edit(text="Отмена обнуления счетчика", attachments=[])
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_callback(F.callback.payload == "add_channel")
@@ -537,7 +550,7 @@ async def add_channel_handler(event: MessageCallback, context: MemoryContext):
             ),
             attachments=[kb.as_markup()],
         )
-    await event.answer()
+    await _ack_callback(event)
 
 
 @router.message_created(ChannelManage.adding_channel)
