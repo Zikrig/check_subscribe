@@ -153,12 +153,7 @@ async def check_subs_callback(event: MessageCallback):
         if promo:
             share_url = await get_bot_share_url(bot)
             promo_attachments = []
-            if share_url:
-                share_kb = InlineKeyboardBuilder()
-                share_kb.row(
-                    LinkButton(text="Поделиться ботом", url=share_url)
-                )
-                promo_attachments = [share_kb.as_markup()]
+
             await event.message.answer(
                 text=f"<code>{html.escape(promo)}</code>",
                 parse_mode=ParseMode.HTML,

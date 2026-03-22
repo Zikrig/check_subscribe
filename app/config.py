@@ -50,8 +50,6 @@ class Settings:
 
     SHEET_ID = os.getenv("SHEET_ID")
 
-    # Ссылка для кнопки «Поделиться ботом» (если пусто — из get_me().username → https://max.ru/ник)
-    BOT_SHARE_URL = os.getenv("BOT_SHARE_URL", "").strip() or None
 
 
 settings = Settings()
