@@ -7,6 +7,7 @@ from maxapi.filters.command import Command
 from maxapi.types import CallbackButton, MessageCallback, MessageCreated
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
+from app.callback_ack import send_callback_ack
 from app.config import settings
 from app.services.channels import (
     add_channel,
@@ -30,10 +31,8 @@ async def _ack_callback(
 ) -> None:
     """Подтвердить callback без повторной отправки старых attachments (иначе затирается message.edit)."""
     bot = event._ensure_bot()
-    await bot.send_callback(
-        callback_id=event.callback.callback_id,
-        message=None,
-        notification=notification,
+    await send_callback_ack(
+        bot, event.callback.callback_id, notification=notification
     )
 
 
@@ -541,13 +540,10 @@ async def add_channel_handler(event: MessageCallback, context: MemoryContext):
     if event.message:
         await event.message.edit(
             text=(
-                "Отправьте ссылку на канал в MAX — одной строкой, например:\n"
-                "https://max.ru/@channel\n"
-                "или коротко: @channel\n\n"
-                "Бот сам получит id и название через API.\n\n"
-                "Либо старый формат (если нужно вручную):\n"
-                "id username [название] [ссылка]\n"
-                "Пример: -10012345678 my_channel Название https://max.ru/@my_channel"
+                "Одной строкой — ссылку на канал в MAX, без @ в пути, например:\n"
+                "https://max.ru/channelname\n\n"
+                "Можно короче: @channelname или просто channelname\n\n"
+                "Бот сам получит id и название через API."
             ),
             attachments=[kb.as_markup()],
         )

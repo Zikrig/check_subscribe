@@ -5,6 +5,7 @@ from maxapi.enums.parse_mode import ParseMode
 from maxapi.filters.command import Command
 from maxapi.types import MessageCallback, MessageCreated
 
+from app.callback_ack import send_callback_ack
 from app.config import settings
 from app.keyboards import subscription_keyboard
 from app.services.channels import get_all_channels, user_is_channel_member
@@ -58,7 +59,9 @@ async def check_subs_callback(event: MessageCallback):
             break
 
     if not event.message or not event.message.body:
-        await event.answer(notification="Сообщение недоступно")
+        await send_callback_ack(
+            bot, event.callback.callback_id, notification="Сообщение недоступно"
+        )
         return
 
     if all_subscribed:
@@ -79,8 +82,4 @@ async def check_subs_callback(event: MessageCallback):
 
     # Не вызывать event.answer(): в maxapi он всегда шлёт в ответ callback
     # старые attachments из original_body и затирает edit() (клавиатура остаётся).
-    await bot.send_callback(
-        callback_id=event.callback.callback_id,
-        message=None,
-        notification=None,
-    )
+    await send_callback_ack(bot, event.callback.callback_id)

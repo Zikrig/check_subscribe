@@ -1,4 +1,5 @@
 import logging
+import re
 from re import findall
 
 from maxapi import Bot
@@ -103,21 +104,50 @@ def _username_tail_from_link_string(link: str) -> str:
     parts = findall(_LINK_USERNAME_PATTERN, link)
     if not parts:
         raise ValueError(
-            "Не удалось извлечь ник из строки (нужна ссылка max.ru или @ник)."
+            "Не удалось извлечь ник из ссылки. Проверьте формат: https://max.ru/ник (без @ в пути)."
         )
     return parts[-1].lstrip("@")
+
+
+def normalize_channel_link_input(raw: str) -> str:
+    """
+    Приводит ввод к URL вида https://max.ru/ник без «@» в пути (как публичная ссылка в MAX).
+    Допустимо: полный URL, max.ru/…, @ник или просто ник.
+    """
+    raw = raw.strip()
+    if not raw:
+        raise ValueError("Пустая строка.")
+    low = raw.lower()
+    if low.startswith("http://") or low.startswith("https://"):
+        return re.sub(r"(max\.ru)/@", r"\1/", raw, flags=re.IGNORECASE)
+    if low.startswith("max.ru"):
+        slash = raw.find("/")
+        if slash >= 0:
+            tail = raw[slash + 1 :].lstrip("@")
+        else:
+            tail = raw[6:].lstrip("/").lstrip("@")
+        if not tail:
+            raise ValueError("Укажите ник в ссылке: max.ru/ник")
+        return f"https://max.ru/{tail}"
+    if raw.startswith("@"):
+        nick = raw[1:].strip().lstrip("@")
+        if not nick:
+            raise ValueError("Укажите ник после @.")
+        return f"https://max.ru/{nick}"
+    nick = raw.strip().lstrip("@")
+    if not nick:
+        raise ValueError("Укажите ссылку https://max.ru/ник или ник / @ник.")
+    return f"https://max.ru/{nick}"
 
 
 async def resolve_channel_from_link_only(
     bot: Bot, link: str
 ) -> tuple[int, str, str | None, str | None]:
     """
-    Один ввод: публичная ссылка или @username.
+    Один ввод: ссылка или ник — внутри нормализуется в https://max.ru/ник.
     Возвращает (chat_id, username, name, link) для add_channel.
     """
-    link = link.strip()
-    if not link:
-        raise ValueError("Пустая строка.")
+    link = normalize_channel_link_input(link)
     try:
         chat = await bot.get_chat_by_link(link)
     except ValueError as e:
@@ -138,33 +168,10 @@ async def resolve_channel_from_link_only(
 async def parse_admin_channel_input(
     bot: Bot, text: str
 ) -> tuple[int, str, str | None, str | None]:
-    """
-    Добавление канала из админки:
-    - одна строка — ссылка (https://max.ru/…, max.ru/…) или @ник;
-    - или legacy: «id username [название] [ссылка]» (первое поле — число, второе — ник).
-    """
+    """Одна строка: ссылка на канал (https://max.ru/ник) или коротко @ник / ник."""
     text = text.strip()
     if not text:
         raise ValueError("Пустой ввод.")
-    parts = text.split()
-    if len(parts) >= 2:
-        try:
-            first_id = int(parts[0])
-        except ValueError:
-            first_id = None
-        if first_id is not None:
-            channel_id = await resolve_max_chat_id(bot, first_id)
-            username = parts[1]
-            name = " ".join(parts[2:]) if len(parts) > 2 else None
-            link: str | None = None
-            for part in parts[2:]:
-                if part.startswith(("http://", "https://", "max.ru/")):
-                    link = part
-                    if name:
-                        name = name.replace(part, "").strip() or None
-                    break
-            return channel_id, username, name, link
-
     return await resolve_channel_from_link_only(bot, text)
 
 

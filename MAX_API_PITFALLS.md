@@ -13,16 +13,17 @@
 - Берётся `original_body.attachments` и подставляется в `MessageForCallback` (строки ~132–134 в `maxapi/types/updates/message_callback.py`).
 - Запрос уходит **после** вашего `edit`, и клиент снова рисует старую inline-клавиатуру.
 
-**Правильное подтверждение callback без перезаписи сообщения:**
+**Правильное подтверждение callback без перезаписи сообщения:** `message=None`, чтобы не слать старые вложения. При этом **пустой JSON** для `POST /answers` API не принимает — нужно хотя бы **`notification`** (иначе `400 proto.payload`: «`message` or `notification` required»). Используйте непустую строку (например один пробел `" "` — некоторые билды API отвергают zero-width символы), либо текст тоста.
 
 ```python
-bot = event._ensure_bot()
 await bot.send_callback(
     callback_id=event.callback.callback_id,
     message=None,
-    notification=None,  # или строка, если нужен тост
+    notification=" ",
 )
 ```
+
+В проекте: `app.callback_ack.send_callback_ack`.
 
 Не вызывать «пустой» `event.answer()` после `edit`, если не хотите отката вложений.
 
@@ -94,5 +95,5 @@ await bot.send_callback(
 ## Краткий чеклист после нажатия inline-кнопки
 
 1. Обновили сообщение через `message.edit` — нужные `attachments` или `[]`.
-2. Подтвердили callback через `bot.send_callback(callback_id=..., message=None, notification=...)`.
+2. Подтвердили callback через `send_callback_ack` / `message=None` + непустой `notification` (например один пробел).
 3. Не вызывать `event.answer()` без осознанной необходимости, если только что меняли вложения через `edit`.
