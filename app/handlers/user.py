@@ -15,6 +15,9 @@ from app.callback_ack import send_callback_ack
 from app.config import settings
 from app.keyboards import subscription_keyboard
 from app.services.bot_link import get_bot_share_url
+from app.services.bot_started_description import (
+    resolve_bot_started_description_image_path,
+)
 from app.services.channels import get_all_channels, user_is_channel_member
 from app.services.promos import get_or_assign_promo
 from app.services.replics import get_replic
@@ -49,6 +52,26 @@ async def _send_main_menu_answer(message, bot, user_id: int) -> None:
     await message.answer(text=start_text, attachments=await _start_attachments(kb))
 
 
+async def _send_bot_started_description_if_any(bot, chat_id: int) -> None:
+    """Первое сообщение только для события bot_started (кнопка «Начало»)."""
+    cap = (await get_replic("bot_started_description")).strip()
+    img_path = await resolve_bot_started_description_image_path()
+    if img_path is not None:
+        text = cap if cap else "\u200b"
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            attachments=[InputMedia(str(img_path))],
+            parse_mode=ParseMode.HTML if cap else None,
+        )
+    elif cap:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=cap,
+            parse_mode=ParseMode.HTML,
+        )
+
+
 async def send_start_response(event: MessageCreated) -> None:
     if not event.message.sender:
         return
@@ -68,6 +91,7 @@ async def bot_started_handler(event: BotStarted) -> None:
     """Кнопка «Начало» в MAX шлёт bot_started, а не /start."""
     bot = event._ensure_bot()
     user_id = event.user.user_id
+    await _send_bot_started_description_if_any(bot, event.chat_id)
     start_text, kb = await _main_menu_text_and_keyboard(bot, user_id)
     await bot.send_message(
         chat_id=event.chat_id,

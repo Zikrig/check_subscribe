@@ -20,6 +20,11 @@ from app.services.channels import (
 )
 from app.services.counters import get_counter, reset_counter
 from app.services.replics import get_replic
+from app.services.bot_started_description import (
+    delete_stored_bot_started_description_image,
+    has_stored_bot_started_description_image,
+    replace_stored_bot_started_description_image,
+)
 from app.services.promo_followup import (
     delete_stored_promo_followup_image,
     has_stored_promo_followup_image,
@@ -73,6 +78,12 @@ class EditPromoFollowup(StatesGroup):
     editing_text = State()
 
 
+class EditBotStartedDesc(StatesGroup):
+    menu = State()
+    waiting_photo = State()
+    editing_text = State()
+
+
 class ChannelManage(StatesGroup):
     choosing_action = State()
     adding_channel = State()
@@ -104,6 +115,7 @@ async def cmd_info(event: MessageCreated):
 
 def _edit_replics_keyboard() -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
+    kb.row(CallbackButton(text="Описание", payload="edit_bot_started_desc"))
     kb.row(
         CallbackButton(text="Стартовое сообщение", payload="edit_start")
     )
@@ -133,7 +145,7 @@ async def _start_image_menu_text() -> str:
         and settings.START_IMAGE_PATH.is_file()
     )
     lines = [
-        "Стартовая картинка для /start и кнопки «Начало».",
+        "Стартовая картинка — главный экран с меню (после «Описание», если оно задано для кнопки «Начало»).",
         "",
     ]
     if has_st:
@@ -226,6 +238,52 @@ def _promo_followup_wait_keyboard() -> InlineKeyboardBuilder:
         CallbackButton(text="❌ Отменить", payload="promo_fw_cancel"),
     )
     return kb
+
+
+async def _bot_started_desc_menu_text() -> str:
+    has_img = await has_stored_bot_started_description_image()
+    text = await get_replic("bot_started_description")
+    text_preview = text.strip() if text else "(пусто)"
+    lines = [
+        "Описание: первое сообщение при нажатии кнопки «Начало» (не при /start).",
+        "Дальше — стартовое сообщение и меню.",
+        "",
+        f"Картинка: {'загружена' if has_img else 'не задана'}.",
+        f"Текст: {text_preview}",
+        "",
+        "Без текста и без картинки блок не отправляется.",
+    ]
+    return "\n".join(lines)
+
+
+def _bot_started_desc_menu_keyboard() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.row(CallbackButton(text="Текст", payload="bsd_text"))
+    kb.row(CallbackButton(text="Загрузить / заменить фото", payload="bsd_upload"))
+    kb.row(CallbackButton(text="Удалить картинку", payload="bsd_delete"))
+    kb.row(CallbackButton(text="Назад", payload="bsd_back"))
+    return kb
+
+
+def _bot_started_desc_wait_keyboard() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        CallbackButton(text="Без картинки", payload="bsd_nop"),
+        CallbackButton(text="❌ Отменить", payload="bsd_cancel"),
+    )
+    return kb
+
+
+@router.message_callback(EditReplic.choosing_replic, F.callback.payload == "edit_bot_started_desc")
+async def open_bot_started_desc_menu(event: MessageCallback, context: MemoryContext):
+    text = await _bot_started_desc_menu_text()
+    await context.set_state(EditBotStartedDesc.menu)
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_bot_started_desc_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
 
 
 @router.message_callback(EditReplic.choosing_replic, F.callback.payload == "edit_promo_followup")
@@ -517,6 +575,140 @@ async def save_promo_followup_from_upload(event: MessageCreated, context: Memory
     await event.message.answer(
         text=text,
         attachments=[_promo_followup_menu_keyboard().as_markup()],
+    )
+
+
+@router.message_callback(EditBotStartedDesc.menu, F.callback.payload == "bsd_back")
+async def bot_started_desc_back_to_replics(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditReplic.choosing_replic)
+    if event.message:
+        await event.message.edit(
+            text="Выберите реплику для редактирования:",
+            attachments=[_edit_replics_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(EditBotStartedDesc.menu, F.callback.payload == "bsd_text")
+async def bot_started_desc_begin_text(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditBotStartedDesc.editing_text)
+    current = await get_replic("bot_started_description")
+    kb = InlineKeyboardBuilder()
+    kb.row(CallbackButton(text="❌ Отменить", payload="bsd_cancel"))
+    if current.strip():
+        head = f"Текущий текст:\n{current}\n\nОтправьте новый текст:"
+    else:
+        head = "Текст не задан.\n\nОтправьте новый текст:"
+    if event.message:
+        await event.message.edit(text=head, attachments=[kb.as_markup()])
+    await _ack_callback(event)
+
+
+@router.message_callback(
+    EditBotStartedDesc.editing_text, F.callback.payload == "bsd_cancel"
+)
+async def bot_started_desc_cancel_text(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditBotStartedDesc.menu)
+    text = await _bot_started_desc_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_bot_started_desc_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_created(EditBotStartedDesc.editing_text)
+async def save_bot_started_desc_text(event: MessageCreated, context: MemoryContext):
+    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
+        return
+    if not event.message.body or not event.message.body.text:
+        return
+
+    new_text = event.message.body.text
+
+    def _save(data):
+        data.setdefault("replics", {})["bot_started_description"] = new_text
+
+    await mutate_store(_save)
+
+    await context.set_state(EditBotStartedDesc.menu)
+    text = await _bot_started_desc_menu_text()
+    await event.message.answer("Текст сохранён.")
+    await event.message.answer(
+        text=text,
+        attachments=[_bot_started_desc_menu_keyboard().as_markup()],
+    )
+
+
+@router.message_callback(EditBotStartedDesc.menu, F.callback.payload == "bsd_upload")
+async def bot_started_desc_begin_upload(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditBotStartedDesc.waiting_photo)
+    if event.message:
+        await event.message.edit(
+            text="Отправьте изображение (фото).",
+            attachments=[_bot_started_desc_wait_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(EditBotStartedDesc.menu, F.callback.payload == "bsd_delete")
+async def bot_started_desc_delete_stored(event: MessageCallback, context: MemoryContext):
+    await delete_stored_bot_started_description_image()
+    text = await _bot_started_desc_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_bot_started_desc_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(
+    EditBotStartedDesc.waiting_photo, F.callback.payload == "bsd_cancel"
+)
+async def bot_started_desc_cancel_upload(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditBotStartedDesc.menu)
+    text = await _bot_started_desc_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_bot_started_desc_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(
+    EditBotStartedDesc.waiting_photo, F.callback.payload == "bsd_nop"
+)
+async def bot_started_desc_wait_nop(event: MessageCallback, context: MemoryContext):
+    await _ack_callback(event, notification=" ")
+
+
+@router.message_created(EditBotStartedDesc.waiting_photo)
+async def save_bot_started_desc_from_upload(event: MessageCreated, context: MemoryContext):
+    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
+        return
+
+    url = first_image_url_from_message_body(event.message.body)
+    if not url:
+        await event.message.answer(
+            "Не удалось принять вложение. Отправьте как фото или как файл-картинку (png, jpg…)."
+        )
+        return
+
+    try:
+        await replace_stored_bot_started_description_image(url)
+    except Exception as e:
+        await event.message.answer(f"Не удалось сохранить: {e}")
+        return
+
+    await context.set_state(EditBotStartedDesc.menu)
+    text = await _bot_started_desc_menu_text()
+    await event.message.answer("Картинка сохранена.")
+    await event.message.answer(
+        text=text,
+        attachments=[_bot_started_desc_menu_keyboard().as_markup()],
     )
 
 
