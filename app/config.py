@@ -1,7 +1,17 @@
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _resolve_data_json_path() -> Path:
+    raw = os.getenv("DATA_JSON_PATH", "data/store.json")
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    return p
 
 
 class Settings:
@@ -22,10 +32,8 @@ class Settings:
             {"id": int(id), "username": username.strip()}
         )
 
-    DB_URL = (
-        f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-        f"@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
-    )
+    # Один JSON-файл вместо PostgreSQL (см. app.services.storage)
+    DATA_JSON_PATH = _resolve_data_json_path()
 
     SHEET_ID = os.getenv("SHEET_ID")
 

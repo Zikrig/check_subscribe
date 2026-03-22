@@ -1,41 +1,34 @@
 import asyncio
 import gspread
-from sqlalchemy import select
-from app.services.db import SessionLocal, Promo
+
 from app.config import settings
+from app.services.storage import mutate_store
 
 gc = gspread.service_account(filename="creds.json")
 
+
 async def update_table():
     sh = gc.open_by_key(settings.SHEET_ID).sheet1
-    data = sh.get_all_records()  # читаем текущие значения
+    data = sh.get_all_records()
 
-    # Сначала добавляем/удаляем промокоды в БД
-    async with SessionLocal() as session:
+    def _sync_promos(store):
         for row in data:
-            row = {k.lower(): v for k, v in row.items()}  # нормализуем ключи
+            row = {k.lower(): v for k, v in row.items()}
             add_code = str(row.get("добавление") or "").strip()
             if add_code:
-                promo = await session.get(Promo, add_code)
-                if not promo:
-                    session.add(Promo(code=add_code))
+                if add_code not in store["promos"]:
+                    store["promos"][add_code] = None
 
             remove_code = str(row.get("удаление") or "").strip()
-            if remove_code:
-                promo = await session.get(Promo, remove_code)
-                if promo:
-                    await session.delete(promo)
-        await session.commit()
+            if remove_code and remove_code in store["promos"]:
+                del store["promos"][remove_code]
 
-        # Берём активные и занятые промокоды
-        result_active = await session.execute(select(Promo).where(Promo.user_id.is_(None)))
-        active_codes = [p.code for p in result_active.scalars().all()]
+        active_codes = [c for c, uid in store["promos"].items() if uid is None]
+        taken_rows = [[c, uid] for c, uid in store["promos"].items() if uid is not None]
+        return active_codes, taken_rows
 
-        result_taken = await session.execute(select(Promo).where(Promo.user_id.is_not(None)))
-        taken = result_taken.scalars().all()
-        taken_rows = [[p.code, p.user_id] for p in taken]
+    active_codes, taken_rows = await mutate_store(_sync_promos)
 
-    # Подготавливаем новые данные для листа
     header = ["Добавление", "Удаление", "Активные", "Готовые", "ID пользователя"]
     n = max(len(active_codes), len(taken_rows))
     add_col = [""] * n
@@ -46,7 +39,6 @@ async def update_table():
 
     rows = list(zip(add_col, remove_col, active_col, ready_col, user_col))
 
-    # Очищаем лист и вставляем новую таблицу
     sh.clear()
     sh.append_row(header)
     if rows:

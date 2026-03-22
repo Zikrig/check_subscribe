@@ -1,7 +1,5 @@
 # app/handlers/admin — MAX Bot API
 
-from sqlalchemy import select
-
 from maxapi import F, Router
 from maxapi.context.context import MemoryContext
 from maxapi.context.state_machine import State, StatesGroup
@@ -20,8 +18,8 @@ from app.services.channels import (
     update_channel,
 )
 from app.services.counters import get_counter, reset_counter
-from app.services.db import Replic, SessionLocal
 from app.services.replics import get_replic
+from app.services.storage import mutate_store
 from app.services.sheets import update_table
 
 router = Router("admin")
@@ -152,16 +150,10 @@ async def save_new_replic(event: MessageCreated, context: MemoryContext):
 
     new_text = event.message.body.text
 
-    async with SessionLocal() as session:
-        result = await session.execute(
-            select(Replic).where(Replic.name == replic_name)
-        )
-        replic = result.scalar_one_or_none()
-        if replic:
-            replic.text = new_text
-        else:
-            session.add(Replic(name=replic_name, text=new_text))
-        await session.commit()
+    def _save_replic(data):
+        data.setdefault("replics", {})[replic_name] = new_text
+
+    await mutate_store(_save_replic)
 
     await event.message.answer("Реплика успешно обновлена!")
     await context.clear()

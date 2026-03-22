@@ -1,11 +1,10 @@
 import logging
 
-from sqlalchemy import select
-
 from maxapi import Bot
 from maxapi.exceptions.max import MaxApiError
 
-from app.services.db import SessionLocal, Channel
+from app.services.db import Channel
+from app.services.storage import mutate_store, read_store
 
 logger = logging.getLogger(__name__)
 
@@ -95,19 +94,31 @@ async def resolve_max_chat_id(bot: Bot, channel_id: int) -> int:
         return channel_id
 
 
+def _row_to_channel(sid: str, row: dict) -> Channel:
+    return Channel(
+        id=int(sid),
+        username=row["username"],
+        name=row.get("name"),
+        link=row.get("link"),
+        is_active=row.get("is_active", True),
+    )
+
+
 async def get_all_channels():
-    async with SessionLocal() as session:
-        result = await session.execute(select(Channel))
-        return result.scalars().all()
+    data = await read_store()
+    channels = [
+        _row_to_channel(sid, row) for sid, row in data["channels"].items()
+    ]
+    return sorted(channels, key=lambda c: c.id)
 
 
 async def log_channels_at_startup(bot: Bot) -> None:
-    """Пишет в лог все каналы из БД и сведения из MAX API (get_chat_by_id)."""
+    """Пишет в лог все каналы из хранилища и сведения из MAX API (get_chat_by_id)."""
     channels = await get_all_channels()
     logger.info("Загружено каналов: %s", len(channels))
     for i, ch in enumerate(channels, start=1):
         logger.info(
-            "  [%s] БД: id=%s username=%s name=%s is_active=%s link=%s",
+            "  [%s] JSON: id=%s username=%s name=%s is_active=%s link=%s",
             i,
             ch.id,
             ch.username,
@@ -143,56 +154,62 @@ async def log_channels_at_startup(bot: Bot) -> None:
 
 
 async def get_channel(channel_id: int):
-    async with SessionLocal() as session:
-        return await session.get(Channel, channel_id)
+    data = await read_store()
+    row = data["channels"].get(str(channel_id))
+    if not row:
+        return None
+    return _row_to_channel(str(channel_id), row)
+
 
 async def toggle_channel(channel_id: int):
-    async with SessionLocal() as session:
-        channel = await session.get(Channel, channel_id)
-        if channel:
-            channel.is_active = not channel.is_active
-            await session.commit()
+    def _fn(data):
+        row = data["channels"].get(str(channel_id))
+        if row:
+            row["is_active"] = not row.get("is_active", True)
             return True
-    return False
+        return False
+
+    return await mutate_store(_fn)
+
 
 async def update_channel(channel_id: int, name: str = None, link: str = None):
-    async with SessionLocal() as session:
-        channel = await session.get(Channel, channel_id)
-        if channel:
-            if name is not None:
-                channel.name = name
-            if link is not None:
-                # Validate link format
-                if not link.startswith(('https://', 'http://', 'max.ru/')):
-                    raise ValueError("Ссылка должна начинаться с https://, http:// или max.ru/")
-                channel.link = link
-            await session.commit()
-            return True
-    return False
+    def _fn(data):
+        row = data["channels"].get(str(channel_id))
+        if not row:
+            return False
+        if name is not None:
+            row["name"] = name
+        if link is not None:
+            if not link.startswith(("https://", "http://", "max.ru/")):
+                raise ValueError("Ссылка должна начинаться с https://, http:// или max.ru/")
+            row["link"] = link
+        return True
+
+    return await mutate_store(_fn)
+
 
 async def delete_channel(channel_id: int):
-    async with SessionLocal() as session:
-        channel = await session.get(Channel, channel_id)
-        if channel:
-            await session.delete(channel)
-            await session.commit()
+    def _fn(data):
+        sid = str(channel_id)
+        if sid in data["channels"]:
+            del data["channels"][sid]
             return True
-    return False
+        return False
+
+    return await mutate_store(_fn)
+
 
 async def add_channel(channel_id: int, username: str, name: str = None, link: str = None):
-    async with SessionLocal() as session:
-        # Проверяем, нет ли уже канала с таким id
-        existing = await session.get(Channel, channel_id)
-        if existing:
-            return False  # уже существует
-            
-        new_channel = Channel(
-            id=channel_id,
-            username=username,
-            name=name or username,
-            link=link or normalized_channel_url(username, None),
-            is_active=True
-        )
-        session.add(new_channel)
-        await session.commit()
+    def _fn(data):
+        sid = str(channel_id)
+        if sid in data["channels"]:
+            return False
+        data["channels"][sid] = {
+            "username": username,
+            "name": name or username,
+            "link": link or normalized_channel_url(username, None),
+            "is_active": True,
+        }
         return True
+
+    return await mutate_store(_fn)

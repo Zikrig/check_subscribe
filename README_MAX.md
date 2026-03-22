@@ -17,7 +17,8 @@
 | `MAX_BOT_TOKEN` или `BOT_TOKEN` | Токен бота из кабинета MAX |
 | `CHANNELS` | Список каналов: `chat_id:username,...` — **ID чатов каналов в MAX** (не Telegram). Укажите ссылки на каналы в БД (`link`) или задайте корректный URL в настройках. |
 | `ADMINS` | ID администраторов в MAX (через запятую) |
-| Остальные | Как раньше: Postgres (`POSTGRES_*`), Google Sheets (`SHEET_ID`), и т.д. |
+| `DATA_JSON_PATH` | Путь к JSON-хранилищу (по умолчанию `data/store.json`): промокоды, реплики, каналы, счётчики |
+| Остальное | Google Sheets (`SHEET_ID`), `creds.json` для таблицы — как раньше |
 
 ## Проверка подписок
 
