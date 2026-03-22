@@ -16,20 +16,22 @@ from app.keyboards import subscription_keyboard
 from app.services.channels import get_all_channels, user_is_channel_member
 from app.services.promos import get_or_assign_promo
 from app.services.replics import get_replic
+from app.services.promo_followup import resolve_promo_followup_image_path
+from app.services.start_image import resolve_start_image_path
 
 logger = logging.getLogger(__name__)
 
 router = Router("user")
 
 
-def _start_attachments(kb):
-    """Картинка (если задана и файл есть) + inline-клавиатура."""
+async def _start_attachments(kb):
+    """Картинка (store или START_IMAGE_PATH) + inline-клавиатура."""
     out = []
-    p = settings.START_IMAGE_PATH
-    if p is not None and p.is_file():
+    p = await resolve_start_image_path()
+    if p is not None:
         out.append(InputMedia(str(p)))
-    elif p is not None:
-        logger.warning("START_IMAGE_PATH задан, но файл не найден: %s", p)
+    elif settings.START_IMAGE_PATH is not None:
+        logger.warning("START_IMAGE_PATH задан, но файл не найден: %s", settings.START_IMAGE_PATH)
     out.append(kb)
     return out
 
@@ -42,7 +44,7 @@ async def _main_menu_text_and_keyboard(bot, user_id: int):
 
 async def _send_main_menu_answer(message, bot, user_id: int) -> None:
     start_text, kb = await _main_menu_text_and_keyboard(bot, user_id)
-    await message.answer(text=start_text, attachments=_start_attachments(kb))
+    await message.answer(text=start_text, attachments=await _start_attachments(kb))
 
 
 async def send_start_response(event: MessageCreated) -> None:
@@ -68,7 +70,7 @@ async def bot_started_handler(event: BotStarted) -> None:
     await bot.send_message(
         chat_id=event.chat_id,
         text=start_text,
-        attachments=_start_attachments(kb),
+        attachments=await _start_attachments(kb),
     )
     if user_id in settings.ADMINS:
         await bot.send_message(
@@ -127,6 +129,15 @@ async def check_subs_callback(event: MessageCallback):
                 text=f"<code>{html.escape(promo)}</code>",
                 parse_mode=ParseMode.HTML,
             )
+            img_path = await resolve_promo_followup_image_path()
+            if img_path is not None:
+                cap = (await get_replic("promo_followup_message")).strip()
+                text = cap if cap else "\u200b"
+                await event.message.answer(
+                    text=text,
+                    attachments=[InputMedia(str(img_path))],
+                    parse_mode=ParseMode.HTML if cap else None,
+                )
     else:
         not_subbed_text = await get_replic("not_subbed_message")
         await event.message.edit(

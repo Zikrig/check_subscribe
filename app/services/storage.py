@@ -20,6 +20,8 @@ def _empty_store() -> dict[str, Any]:
         "replics": {},
         "channels": {},
         "counters": {"promos_issued": 0},
+        "start_image_file": None,
+        "promo_followup_file": None,
     }
 
 

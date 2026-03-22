@@ -20,6 +20,17 @@ from app.services.channels import (
 )
 from app.services.counters import get_counter, reset_counter
 from app.services.replics import get_replic
+from app.services.promo_followup import (
+    delete_stored_promo_followup_image,
+    has_stored_promo_followup_image,
+    replace_stored_promo_followup_image,
+)
+from app.services.start_image import (
+    delete_stored_start_image,
+    first_image_url_from_message_body,
+    has_stored_start_image,
+    replace_stored_start_image,
+)
 from app.services.storage import mutate_store
 from app.services.sheets import update_table
 
@@ -48,6 +59,17 @@ INFO_TEXT = (
 
 class EditReplic(StatesGroup):
     choosing_replic = State()
+    editing_text = State()
+
+
+class EditStartImage(StatesGroup):
+    menu = State()
+    waiting_photo = State()
+
+
+class EditPromoFollowup(StatesGroup):
+    menu = State()
+    waiting_photo = State()
     editing_text = State()
 
 
@@ -80,22 +102,79 @@ async def cmd_info(event: MessageCreated):
     await event.message.answer(INFO_TEXT)
 
 
-@router.message_created(Command("edit_replics"))
-async def cmd_edit_replics(event: MessageCreated, context: MemoryContext):
-    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
-        return
-
+def _edit_replics_keyboard() -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     kb.row(
         CallbackButton(text="Стартовое сообщение", payload="edit_start")
     )
     kb.row(
+        CallbackButton(text="Стартовая картинка", payload="edit_start_image")
+    )
+    kb.row(
         CallbackButton(text="Сообщение об успехе", payload="edit_success")
+    )
+    kb.row(
+        CallbackButton(
+            text="Сообщение об акции (после промокода)",
+            payload="edit_promo_followup",
+        )
     )
     kb.row(
         CallbackButton(text="Сообщение о неподписке", payload="edit_not_subbed"),
     )
     kb.row(CallbackButton(text="Назад", payload="cancel_edit"))
+    return kb
+
+
+async def _start_image_menu_text() -> str:
+    has_st = await has_stored_start_image()
+    has_env = (
+        settings.START_IMAGE_PATH is not None
+        and settings.START_IMAGE_PATH.is_file()
+    )
+    lines = [
+        "Стартовая картинка для /start и кнопки «Начало».",
+        "",
+    ]
+    if has_st:
+        lines.append("Сейчас: файл, загруженный через бота (в каталоге data).")
+    elif has_env:
+        lines.append(
+            f"Сейчас: START_IMAGE_PATH ({settings.START_IMAGE_PATH})."
+        )
+    else:
+        lines.append("Сейчас: картинка не задана.")
+    lines.append("")
+    lines.append(
+        "Загрузка через бота сохраняет файл в data и имеет приоритет над START_IMAGE_PATH."
+    )
+    return "\n".join(lines)
+
+
+def _start_image_menu_keyboard() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        CallbackButton(text="Загрузить новое фото", payload="start_img_upload")
+    )
+    kb.row(
+        CallbackButton(text="Удалить файл из бота", payload="start_img_delete")
+    )
+    kb.row(CallbackButton(text="Назад", payload="start_img_back"))
+    return kb
+
+
+def _start_image_wait_keyboard() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.row(CallbackButton(text="❌ Отменить", payload="start_img_cancel"))
+    return kb
+
+
+@router.message_created(Command("edit_replics"))
+async def cmd_edit_replics(event: MessageCreated, context: MemoryContext):
+    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
+        return
+
+    kb = _edit_replics_keyboard()
 
     await event.message.answer(
         "Выберите реплику для редактирования:",
@@ -110,6 +189,66 @@ async def choose_replic_cancel(event: MessageCallback, context: MemoryContext):
     if event.message:
         await event.message.edit(text="Редактирование отменено.", attachments=[])
         await event.message.answer(INFO_TEXT)
+    await _ack_callback(event)
+
+
+async def _promo_followup_menu_text() -> str:
+    has_img = await has_stored_promo_followup_image()
+    text = await get_replic("promo_followup_message")
+    text_preview = text.strip() if text else "(пусто)"
+    lines = [
+        "Сообщение об акции: отправляется после промокода (если задана картинка).",
+        "",
+        f"Картинка: {'загружена' if has_img else 'не задана'}.",
+        f"Текст (подпись к картинке): {text_preview}",
+        "",
+        "Без картинки третье сообщение не отправляется.",
+    ]
+    return "\n".join(lines)
+
+
+def _promo_followup_menu_keyboard() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.row(CallbackButton(text="Текст сообщения", payload="promo_fw_text"))
+    kb.row(
+        CallbackButton(text="Загрузить / заменить фото", payload="promo_fw_upload")
+    )
+    kb.row(CallbackButton(text="Удалить картинку", payload="promo_fw_delete"))
+    kb.row(CallbackButton(text="Назад", payload="promo_fw_back"))
+    return kb
+
+
+def _promo_followup_wait_keyboard() -> InlineKeyboardBuilder:
+    """Кнопка без видимого текста + отмена (при ожидании фото)."""
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        CallbackButton(text="\u200b", payload="promo_fw_nop"),
+        CallbackButton(text="❌ Отменить", payload="promo_fw_cancel"),
+    )
+    return kb
+
+
+@router.message_callback(EditReplic.choosing_replic, F.callback.payload == "edit_promo_followup")
+async def open_promo_followup_menu(event: MessageCallback, context: MemoryContext):
+    text = await _promo_followup_menu_text()
+    await context.set_state(EditPromoFollowup.menu)
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_promo_followup_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(EditReplic.choosing_replic, F.callback.payload == "edit_start_image")
+async def open_start_image_menu(event: MessageCallback, context: MemoryContext):
+    text = await _start_image_menu_text()
+    await context.set_state(EditStartImage.menu)
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_start_image_menu_keyboard().as_markup()],
+        )
     await _ack_callback(event)
 
 
@@ -172,6 +311,207 @@ async def save_new_replic(event: MessageCreated, context: MemoryContext):
     await event.message.answer("Реплика успешно обновлена!")
     await context.clear()
     await event.message.answer(INFO_TEXT)
+
+
+@router.message_callback(EditStartImage.menu, F.callback.payload == "start_img_back")
+async def start_image_back_to_replics(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditReplic.choosing_replic)
+    if event.message:
+        await event.message.edit(
+            text="Выберите реплику для редактирования:",
+            attachments=[_edit_replics_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(EditStartImage.menu, F.callback.payload == "start_img_upload")
+async def start_image_begin_upload(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditStartImage.waiting_photo)
+    if event.message:
+        await event.message.edit(
+            text="Отправьте изображение (фото).",
+            attachments=[_start_image_wait_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(EditStartImage.menu, F.callback.payload == "start_img_delete")
+async def start_image_delete_stored(event: MessageCallback, context: MemoryContext):
+    await delete_stored_start_image()
+    text = await _start_image_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_start_image_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(EditStartImage.waiting_photo, F.callback.payload == "start_img_cancel")
+async def start_image_cancel_upload(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditStartImage.menu)
+    text = await _start_image_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_start_image_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_created(EditStartImage.waiting_photo)
+async def save_start_image_from_upload(event: MessageCreated, context: MemoryContext):
+    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
+        return
+
+    url = first_image_url_from_message_body(event.message.body)
+    if not url:
+        await event.message.answer("Нужно отправить изображение (фото).")
+        return
+
+    try:
+        await replace_stored_start_image(url)
+    except Exception as e:
+        await event.message.answer(f"Не удалось сохранить: {e}")
+        return
+
+    await context.set_state(EditStartImage.menu)
+    text = await _start_image_menu_text()
+    await event.message.answer(
+        text=text,
+        attachments=[_start_image_menu_keyboard().as_markup()],
+    )
+
+
+@router.message_callback(EditPromoFollowup.menu, F.callback.payload == "promo_fw_back")
+async def promo_followup_back_to_replics(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditReplic.choosing_replic)
+    if event.message:
+        await event.message.edit(
+            text="Выберите реплику для редактирования:",
+            attachments=[_edit_replics_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(EditPromoFollowup.menu, F.callback.payload == "promo_fw_text")
+async def promo_followup_begin_text(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditPromoFollowup.editing_text)
+    current = await get_replic("promo_followup_message")
+    kb = InlineKeyboardBuilder()
+    kb.row(CallbackButton(text="❌ Отменить", payload="promo_fw_cancel"))
+    if current.strip():
+        head = f"Текущий текст:\n{current}\n\nОтправьте новый текст:"
+    else:
+        head = "Текст не задан (к картинке будет только невидимая подпись).\n\nОтправьте новый текст:"
+    if event.message:
+        await event.message.edit(text=head, attachments=[kb.as_markup()])
+    await _ack_callback(event)
+
+
+@router.message_callback(
+    EditPromoFollowup.editing_text, F.callback.payload == "promo_fw_cancel"
+)
+async def promo_followup_cancel_text(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditPromoFollowup.menu)
+    text = await _promo_followup_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_promo_followup_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_created(EditPromoFollowup.editing_text)
+async def save_promo_followup_text(event: MessageCreated, context: MemoryContext):
+    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
+        return
+    if not event.message.body or not event.message.body.text:
+        return
+
+    new_text = event.message.body.text
+
+    def _save(data):
+        data.setdefault("replics", {})["promo_followup_message"] = new_text
+
+    await mutate_store(_save)
+
+    await context.set_state(EditPromoFollowup.menu)
+    text = await _promo_followup_menu_text()
+    await event.message.answer("Текст сохранён.")
+    await event.message.answer(
+        text=text,
+        attachments=[_promo_followup_menu_keyboard().as_markup()],
+    )
+
+
+@router.message_callback(EditPromoFollowup.menu, F.callback.payload == "promo_fw_upload")
+async def promo_followup_begin_upload(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditPromoFollowup.waiting_photo)
+    if event.message:
+        await event.message.edit(
+            text="Отправьте изображение (фото).",
+            attachments=[_promo_followup_wait_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(EditPromoFollowup.menu, F.callback.payload == "promo_fw_delete")
+async def promo_followup_delete_stored(event: MessageCallback, context: MemoryContext):
+    await delete_stored_promo_followup_image()
+    text = await _promo_followup_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_promo_followup_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(
+    EditPromoFollowup.waiting_photo, F.callback.payload == "promo_fw_cancel"
+)
+async def promo_followup_cancel_upload(event: MessageCallback, context: MemoryContext):
+    await context.set_state(EditPromoFollowup.menu)
+    text = await _promo_followup_menu_text()
+    if event.message:
+        await event.message.edit(
+            text=text,
+            attachments=[_promo_followup_menu_keyboard().as_markup()],
+        )
+    await _ack_callback(event)
+
+
+@router.message_callback(
+    EditPromoFollowup.waiting_photo, F.callback.payload == "promo_fw_nop"
+)
+async def promo_followup_wait_nop(event: MessageCallback, context: MemoryContext):
+    await _ack_callback(event, notification=" ")
+
+
+@router.message_created(EditPromoFollowup.waiting_photo)
+async def save_promo_followup_from_upload(event: MessageCreated, context: MemoryContext):
+    if not event.message.sender or event.message.sender.user_id not in settings.ADMINS:
+        return
+
+    url = first_image_url_from_message_body(event.message.body)
+    if not url:
+        await event.message.answer("Нужно отправить изображение (фото).")
+        return
+
+    try:
+        await replace_stored_promo_followup_image(url)
+    except Exception as e:
+        await event.message.answer(f"Не удалось сохранить: {e}")
+        return
+
+    await context.set_state(EditPromoFollowup.menu)
+    text = await _promo_followup_menu_text()
+    await event.message.answer(
+        text=text,
+        attachments=[_promo_followup_menu_keyboard().as_markup()],
+    )
 
 
 async def manage_channels_message(message, *, edit: bool = False):
