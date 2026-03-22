@@ -87,9 +87,11 @@ async def cmd_edit_replics(event: MessageCreated, context: MemoryContext):
 
     kb = InlineKeyboardBuilder()
     kb.row(
-        CallbackButton(text="Стартовое сообщение", payload="edit_start"),
-        CallbackButton(text="Сообщение об успехе", payload="edit_success"),
+        CallbackButton(text="Стартовое сообщение", payload="edit_start")
     )
+    kb.row(
+        CallbackButton(text="Сообщение об успехе", payload="edit_success")
+        )
     kb.row(
         CallbackButton(text="Сообщение о неподписке", payload="edit_not_subbed"),
     )
