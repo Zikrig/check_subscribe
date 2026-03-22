@@ -140,25 +140,64 @@ def normalize_channel_link_input(raw: str) -> str:
     return f"https://max.ru/{nick}"
 
 
+async def _chats_matching_nick_hint(bot: Bot, nick_hint: str) -> list:
+    """Диалоги бота (get_chats), где link/title содержат ник — как resolve_channel_id.py."""
+    nick_hint = nick_hint.lower().strip().lstrip("@")
+    if not nick_hint:
+        return []
+    out = []
+    marker: int | None = None
+    while True:
+        page = await bot.get_chats(count=100, marker=marker)
+        for chat in page.chats:
+            c_link = (chat.link or "").lower()
+            title = (chat.title or "").lower()
+            if nick_hint and (
+                nick_hint in c_link
+                or c_link.rstrip("/").endswith("/" + nick_hint)
+                or nick_hint in title
+            ):
+                out.append(chat)
+        marker = page.marker
+        if marker is None:
+            break
+    return out
+
+
 async def resolve_channel_from_link_only(
     bot: Bot, link: str
 ) -> tuple[int, str, str | None, str | None]:
     """
     Один ввод: ссылка или ник — внутри нормализуется в https://max.ru/ник.
+    Сначала get_chat_by_link; если не удалось — поиск в get_chats по нику (бот в канале).
     Возвращает (chat_id, username, name, link) для add_channel.
     """
     link = normalize_channel_link_input(link)
+    nick_hint = _username_tail_from_link_string(link)
+
     try:
         chat = await bot.get_chat_by_link(link)
-    except ValueError as e:
-        raise ValueError(str(e)) from e
-    except MaxApiError as e:
-        raise ValueError(
-            f"Не удалось получить канал по ссылке (код {e.code}). "
-            "Проверьте ссылку и что бот видит этот чат."
-        ) from e
+    except (ValueError, MaxApiError) as e:
+        matches = await _chats_matching_nick_hint(bot, nick_hint)
+        if len(matches) == 1:
+            chat = matches[0]
+        elif len(matches) > 1:
+            raise ValueError(
+                "Найдено несколько чатов с таким ником в диалогах бота; "
+                "укажите числовой chat_id или уточните ссылку."
+            ) from e
+        else:
+            if isinstance(e, MaxApiError):
+                raise ValueError(
+                    f"Канал по ссылке недоступен (код {e.code}), среди диалогов бота не найден. "
+                    "Добавьте бота в канал и повторите."
+                ) from e
+            raise ValueError(
+                f"Не удалось разрешить канал: {e}. "
+                f"Среди диалогов бота канала с ником «{nick_hint}» нет."
+            ) from e
 
-    username = _username_tail_from_link_string(link)
+    username = nick_hint
     channel_id = await resolve_max_chat_id(bot, chat.chat_id)
     name = chat.title or username
     stored_link = chat.link or normalized_channel_url(username, None)
