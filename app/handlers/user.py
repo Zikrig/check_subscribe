@@ -133,9 +133,9 @@ async def check_subs_callback(event: MessageCallback):
     channels = await get_all_channels()
 
     for ch in channels:
-        if not ch.is_active:
+        if not ch["is_active"]:
             continue
-        if not await user_is_channel_member(bot, ch.id, user_id):
+        if not await user_is_channel_member(bot, ch["id"], user_id):
             all_subscribed = False
             break
 

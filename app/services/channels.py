@@ -30,14 +30,14 @@ def normalized_channel_url(username: str, link: str | None) -> str:
 
 
 async def resolve_channel_url(bot: Bot, channel: Channel) -> str:
-    """Официальная ссылка из API, если бот видит чат; иначе из БД / шаблон max.ru/@…"""
+    """Официальная ссылка из API, если бот видит чат; иначе из JSON / шаблон max.ru/@…"""
     try:
-        chat = await bot.get_chat_by_id(channel.id)
+        chat = await bot.get_chat_by_id(channel["id"])
         if chat.link:
             return chat.link
     except Exception:
         pass
-    return normalized_channel_url(channel.username, channel.link)
+    return normalized_channel_url(channel["username"], channel["link"])
 
 
 async def user_is_channel_member(bot: Bot, chat_id: int, user_id: int) -> bool:
@@ -215,13 +215,13 @@ async def parse_admin_channel_input(
 
 
 def _row_to_channel(sid: str, row: dict) -> Channel:
-    return Channel(
-        id=int(sid),
-        username=row["username"],
-        name=row.get("name"),
-        link=row.get("link"),
-        is_active=row.get("is_active", True),
-    )
+    return {
+        "id": int(sid),
+        "username": row["username"],
+        "name": row.get("name"),
+        "link": row.get("link"),
+        "is_active": row.get("is_active", True),
+    }
 
 
 async def get_all_channels():
@@ -229,7 +229,7 @@ async def get_all_channels():
     channels = [
         _row_to_channel(sid, row) for sid, row in data["channels"].items()
     ]
-    return sorted(channels, key=lambda c: c.id)
+    return sorted(channels, key=lambda c: c["id"])
 
 
 async def log_channels_at_startup(bot: Bot) -> None:
@@ -240,14 +240,14 @@ async def log_channels_at_startup(bot: Bot) -> None:
         logger.info(
             "  [%s] JSON: id=%s username=%s name=%s is_active=%s link=%s",
             i,
-            ch.id,
-            ch.username,
-            ch.name,
-            ch.is_active,
-            ch.link,
+            ch["id"],
+            ch["username"],
+            ch["name"],
+            ch["is_active"],
+            ch["link"],
         )
         try:
-            chat = await bot.get_chat_by_id(ch.id)
+            chat = await bot.get_chat_by_id(ch["id"])
             logger.info(
                 "      MAX API: title=%r link=%s participants=%s is_public=%s",
                 chat.title,
@@ -262,7 +262,7 @@ async def log_channels_at_startup(bot: Bot) -> None:
 
     by_abs: dict[int, list[int]] = {}
     for ch in channels:
-        by_abs.setdefault(abs(ch.id), []).append(ch.id)
+        by_abs.setdefault(abs(ch["id"]), []).append(ch["id"])
     for a, ids in by_abs.items():
         if len(set(ids)) > 1:
             logger.warning(

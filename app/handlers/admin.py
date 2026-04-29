@@ -862,12 +862,12 @@ async def manage_channels_message(message, *, edit: bool = False):
     kb = InlineKeyboardBuilder()
 
     for channel in channels:
-        status = "✅" if channel.is_active else "❌"
-        display_name = channel.name or channel.username
+        status = "✅" if channel["is_active"] else "❌"
+        display_name = channel["name"] or channel["username"]
         kb.row(
             CallbackButton(
                 text=f"{status} {display_name}",
-                payload=f"channel_{channel.id}",
+                payload=f"channel_{channel['id']}",
             )
         )
 
@@ -904,7 +904,7 @@ async def channel_toggle_handler(event: MessageCallback):
         channel = await get_channel(channel_id)
         if channel:
             status_btn_text = (
-                "❌ Деактивировать" if channel.is_active else "✅ Активировать"
+                "❌ Деактивировать" if channel["is_active"] else "✅ Активировать"
             )
             kb = InlineKeyboardBuilder()
             kb.row(
@@ -934,11 +934,11 @@ async def channel_toggle_handler(event: MessageCallback):
             await event.message.edit(
                 text=(
                     f"Управление каналом:\n\n"
-                    f"ID: {channel.id}\n"
-                    f"Username: {channel.username}\n"
-                    f"Название: {channel.name or 'Не задано'}\n"
-                    f"Ссылка: {channel.link or 'Не задана'}\n"
-                    f"Статус: {'Активен' if channel.is_active else 'Неактивен'}"
+                    f"ID: {channel['id']}\n"
+                    f"Username: {channel['username']}\n"
+                    f"Название: {channel['name'] or 'Не задано'}\n"
+                    f"Ссылка: {channel['link'] or 'Не задана'}\n"
+                    f"Статус: {'Активен' if channel['is_active'] else 'Неактивен'}"
                 ),
                 attachments=[kb.as_markup()],
             )
@@ -1025,7 +1025,7 @@ async def channel_delete_handler(event: MessageCallback, context: MemoryContext)
     await event.message.edit(
         text=(
             f"Вы уверены, что хотите удалить канал "
-            f"{channel.name or channel.username}?"
+            f"{channel['name'] or channel['username']}?"
         ),
         attachments=[kb.as_markup()],
     )
@@ -1080,7 +1080,7 @@ async def channel_action_handler(event: MessageCallback, context: MemoryContext)
     await context.update_data(channel_id=channel_id)
 
     status_btn_text = (
-        "❌ Деактивировать" if channel.is_active else "✅ Активировать"
+        "❌ Деактивировать" if channel["is_active"] else "✅ Активировать"
     )
     kb = InlineKeyboardBuilder()
     kb.row(
@@ -1104,11 +1104,11 @@ async def channel_action_handler(event: MessageCallback, context: MemoryContext)
     await event.message.edit(
         text=(
             f"Управление каналом:\n\n"
-            f"ID: {channel.id}\n"
-            f"Username: {channel.username}\n"
-            f"Название: {channel.name or 'Не задано'}\n"
-            f"Ссылка: {channel.link or 'Не задана'}\n"
-            f"Статус: {'Активен' if channel.is_active else 'Неактивен'}"
+            f"ID: {channel['id']}\n"
+            f"Username: {channel['username']}\n"
+            f"Название: {channel['name'] or 'Не задано'}\n"
+            f"Ссылка: {channel['link'] or 'Не задана'}\n"
+            f"Статус: {'Активен' if channel['is_active'] else 'Неактивен'}"
         ),
         attachments=[kb.as_markup()],
     )

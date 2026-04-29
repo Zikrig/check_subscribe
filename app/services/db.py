@@ -1,17 +1,18 @@
-# app/db — модели данных (канал); инициализация JSON-хранилища
+# app/db — тип строки канала в JSON-хранилище; инициализация без БД.
 
-from dataclasses import dataclass
+from typing import TypedDict
 
 from app.services.storage import init_storage
 
 
-@dataclass
-class Channel:
+class Channel(TypedDict):
+    """Одна запись из store['channels'][str id] — только dict-поля JSON."""
+
     id: int
     username: str
-    name: str | None = None
-    link: str | None = None
-    is_active: bool = True
+    name: str | None
+    link: str | None
+    is_active: bool
 
 
 async def init_db():
