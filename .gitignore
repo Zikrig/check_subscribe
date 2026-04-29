@@ -3,3 +3,5 @@ __pycache__
 .env
 creds*
 data/*.json
+config/
+docker-compose.yml
