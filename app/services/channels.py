@@ -121,6 +121,66 @@ def _username_tail_from_link_string(link: str) -> str:
     return parts[-1].lstrip("@")
 
 
+def _normalize_nick_for_match(raw: str) -> str:
+    return raw.strip().lower().lstrip("@")
+
+
+def _public_slug_from_link(link: str | None) -> str | None:
+    """
+    Сегмент ссылки для сравнения с ником: после последнего «/» или после «@»,
+    без учёта регистра (возвращаем уже в lower).
+    """
+    if not link:
+        return None
+    s = link.strip()
+    s = s.split("?")[0].split("#")[0]
+    if s.startswith("@"):
+        tail = s[1:].split("/")[0].strip()
+        return tail.lower() if tail else None
+    at = s.rfind("@")
+    if at >= 0:
+        tail = s[at + 1 :].split("/")[0].strip()
+        if tail:
+            return tail.lower()
+    try:
+        return _username_tail_from_link_string(s).lower()
+    except ValueError:
+        pass
+    low = s.lower()
+    for prefix in (
+        "https://max.ru/",
+        "http://max.ru/",
+        "https://www.max.ru/",
+        "http://www.max.ru/",
+    ):
+        if low.startswith(prefix):
+            rest = s[len(prefix) :].strip().lstrip("/")
+            if not rest:
+                return None
+            return rest.split("/")[0].lstrip("@").lower()
+    if low.startswith("max.ru/"):
+        rest = s[6:].lstrip("/")
+        if not rest:
+            return None
+        return rest.split("/")[0].lstrip("@").lower()
+    if "/" in s:
+        seg = s.rsplit("/", 1)[-1].lstrip("@").strip()
+        return seg.lower() if seg else None
+    seg = s.lstrip("@").strip()
+    return seg.lower() if seg else None
+
+
+def _channel_matches_nick_exact(chat: Any, nick_norm: str) -> bool:
+    """Полное совпадение ника (без регистра) или хвоста ссылки; опционально title == ник."""
+    if not nick_norm:
+        return False
+    slug = _public_slug_from_link(getattr(chat, "link", None))
+    if slug is not None and slug == nick_norm:
+        return True
+    title = (getattr(chat, "title", None) or "").strip().lower()
+    return bool(title) and title == nick_norm
+
+
 def normalize_channel_link_input(raw: str) -> str:
     """
     Приводит ввод к URL вида https://max.ru/ник без «@» в пути (как публичная ссылка в MAX).
@@ -179,10 +239,10 @@ def _username_from_resolved_chat(chat, resolved_chat_id: int) -> str:
 async def _matching_channels_for_bot(bot: Bot, nick_hint: str) -> list:
     """
     Среди чатов, где состоит бот — только каналы (type=channel).
-    Пагинация get_chats; отбор по нику в ссылке или названии.
+    Пагинация get_chats; совпадение только целиком: ник или хвост ссылки (без регистра).
     """
-    nick_hint = nick_hint.lower().strip().lstrip("@")
-    if not nick_hint:
+    nick_norm = _normalize_nick_for_match(nick_hint)
+    if not nick_norm:
         return []
     out: list = []
     marker: int | None = None
@@ -207,13 +267,7 @@ async def _matching_channels_for_bot(bot: Bot, nick_hint: str) -> list:
                 continue
             channels_seen += 1
             membership_channel_ids.append(chat.chat_id)
-            c_link = (chat.link or "").lower()
-            title = (chat.title or "").lower()
-            if (
-                nick_hint in c_link
-                or c_link.rstrip("/").endswith("/" + nick_hint)
-                or nick_hint in title
-            ):
+            if _channel_matches_nick_exact(chat, nick_norm):
                 out.append(chat)
         marker = page.marker
         if marker is None:
