@@ -1224,10 +1224,12 @@ async def add_channel_handler(event: MessageCallback, context: MemoryContext):
     if event.message:
         await event.message.edit(
             text=(
-                "Одной строкой — ссылку на канал в MAX, без @ в пути, например:\n"
-                "https://max.ru/channelname\n\n"
-                "Можно короче: @channelname или просто channelname\n\n"
-                "Бот сам получит id и название через API."
+                "Одной строкой:\n"
+                "• числовой chat_id канала (как в MAX; допустим знак «-»)\n"
+                "• или ссылку без @ в пути: https://max.ru/channelname\n"
+                "• или короче: @channelname или channelname\n\n"
+                "Сначала запрос по ссылке MAX; если не вышло — только среди групп и каналов, "
+                "где бот уже состоит (личные диалоги не смотрим). По chat_id — прямой запрос."
             ),
             attachments=[kb.as_markup()],
         )

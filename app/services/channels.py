@@ -1,8 +1,10 @@
 import logging
 import re
 from re import findall
+from typing import Any
 
 from maxapi import Bot
+from maxapi.enums.chat_type import ChatType
 from maxapi.exceptions.max import MaxApiError
 
 # Как в maxapi.methods.get_chat_by_link.GetChatByLink.PATTERN_LINK
@@ -12,6 +14,22 @@ from app.services.db import Channel
 from app.services.storage import mutate_store, read_store
 
 logger = logging.getLogger(__name__)
+
+# Из get_chats — только сообщества и каналы, без личных диалогов (dialog).
+_BOT_MEMBER_SUPERCHAT_TYPES: frozenset[ChatType] = frozenset(
+    {ChatType.CHAT, ChatType.CHANNEL}
+)
+
+
+def _chat_summary_for_log(chat: Any) -> dict[str, Any]:
+    t = getattr(chat, "type", None)
+    tv = getattr(t, "value", None) if t is not None else None
+    return {
+        "chat_id": getattr(chat, "chat_id", None),
+        "type": tv or (str(t) if t is not None else None),
+        "title": getattr(chat, "title", None),
+        "link": getattr(chat, "link", None),
+    }
 
 
 def _username_for_url(username: str) -> str:
@@ -140,19 +158,55 @@ def normalize_channel_link_input(raw: str) -> str:
     return f"https://max.ru/{nick}"
 
 
-async def _chats_matching_nick_hint(bot: Bot, nick_hint: str) -> list:
-    """Диалоги бота (get_chats), где link/title содержат ник — как resolve_channel_id.py."""
+def _looks_like_numeric_chat_id(raw: str) -> bool:
+    s = raw.strip()
+    if not s:
+        return False
+    if s[0] == "-":
+        s = s[1:]
+        if not s:
+            return False
+    return s.isdigit()
+
+
+def _username_from_resolved_chat(chat, resolved_chat_id: int) -> str:
+    link = getattr(chat, "link", None) or ""
+    if link:
+        try:
+            return _username_tail_from_link_string(link)
+        except ValueError:
+            pass
+    title = (chat.title or "").strip()
+    if title:
+        return title[:128]
+    return str(abs(resolved_chat_id))
+
+
+async def _matching_group_channels_for_bot(bot: Bot, nick_hint: str) -> list:
+    """
+    Среди чатов, где состоит бот — только типы chat и channel (не личные dialog).
+    Пагинация get_chats, отбор по нику в ссылке/названии.
+    """
     nick_hint = nick_hint.lower().strip().lstrip("@")
     if not nick_hint:
         return []
-    out = []
+    out: list = []
     marker: int | None = None
+    pages = 0
+    inspected = 0
+    skipped_dialog = 0
     while True:
         page = await bot.get_chats(count=100, marker=marker)
+        pages += 1
         for chat in page.chats:
+            inspected += 1
+            if chat.type not in _BOT_MEMBER_SUPERCHAT_TYPES:
+                if chat.type == ChatType.DIALOG:
+                    skipped_dialog += 1
+                continue
             c_link = (chat.link or "").lower()
             title = (chat.title or "").lower()
-            if nick_hint and (
+            if (
                 nick_hint in c_link
                 or c_link.rstrip("/").endswith("/" + nick_hint)
                 or nick_hint in title
@@ -161,7 +215,56 @@ async def _chats_matching_nick_hint(bot: Bot, nick_hint: str) -> list:
         marker = page.marker
         if marker is None:
             break
+    logger.info(
+        "добавление канала: обход членства бота (get_chats), страниц=%s, "
+        "чатов всего=%s, пропущено личных dialog=%s, совпало channel/chat=%s",
+        pages,
+        inspected,
+        skipped_dialog,
+        len(out),
+    )
     return out
+
+
+async def resolve_channel_from_chat_id_only(
+    bot: Bot, channel_id: int
+) -> tuple[int, str, str | None, str | None]:
+    """
+    Добавление канала только по числовому chat_id: GET /chats/{id}.
+    Никакого обхода get_chats.
+    """
+    logger.info("добавление канала: поиск по id %s", channel_id)
+
+    resolved_id = await resolve_max_chat_id(bot, channel_id)
+    try:
+        chat = await bot.get_chat_by_id(resolved_id)
+    except MaxApiError as e:
+        logger.warning(
+            "добавление канала: поиск по id %s — ошибка API %s (%s)",
+            channel_id,
+            e.code,
+            e,
+        )
+        raise ValueError(
+            f"Канал с chat_id={channel_id} не найден или недоступен (API {e.code}). "
+            "Проверьте id (учёт знака «-») и что бот добавлен администратором в канал."
+        ) from e
+    except Exception as e:
+        logger.warning("добавление канала: поиск по id %s — %s", channel_id, e)
+        raise ValueError(
+            f"Не удалось получить канал по chat_id={channel_id}: {e}"
+        ) from e
+
+    final_id = await resolve_max_chat_id(bot, chat.chat_id)
+    username = _username_from_resolved_chat(chat, final_id)
+    name = chat.title or username
+    stored_link = chat.link or normalized_channel_url(username, None)
+    logger.info(
+        "добавление канала: поиск по id %s — ответ %s",
+        channel_id,
+        _chat_summary_for_log(chat),
+    )
+    return final_id, username, name, stored_link
 
 
 async def resolve_channel_from_link_only(
@@ -169,32 +272,72 @@ async def resolve_channel_from_link_only(
 ) -> tuple[int, str, str | None, str | None]:
     """
     Один ввод: ссылка или ник — внутри нормализуется в https://max.ru/ник.
-    Сначала get_chat_by_link; если не удалось — поиск в get_chats по нику (бот в канале).
+    Сначала get_chat_by_link; если нет — только среди channel/chat где бот состоит
+    (get_chats без личных dialog).
     Возвращает (chat_id, username, name, link) для add_channel.
     """
-    link = normalize_channel_link_input(link)
-    nick_hint = _username_tail_from_link_string(link)
+    link_norm = normalize_channel_link_input(link)
+    nick_hint = _username_tail_from_link_string(link_norm)
+
+    logger.info(
+        "добавление канала: поиск по нику/ссылке %r → %s (ник %s)",
+        link,
+        link_norm,
+        nick_hint,
+    )
 
     try:
-        chat = await bot.get_chat_by_link(link)
+        chat = await bot.get_chat_by_link(link_norm)
+        logger.info(
+            "добавление канала: поиск по нику %s через get_chat_by_link — ответ %s",
+            nick_hint,
+            _chat_summary_for_log(chat),
+        )
     except (ValueError, MaxApiError) as e:
-        matches = await _chats_matching_nick_hint(bot, nick_hint)
+        logger.info(
+            "добавление канала: get_chat_by_link не удался для %s (%s), "
+            "пробую среди channel/chat членства бота",
+            nick_hint,
+            type(e).__name__,
+        )
+        matches = await _matching_group_channels_for_bot(bot, nick_hint)
         if len(matches) == 1:
             chat = matches[0]
+            logger.info(
+                "добавление канала: поиск по нику %s среди членства бота — ответ %s",
+                nick_hint,
+                _chat_summary_for_log(chat),
+            )
         elif len(matches) > 1:
+            logger.warning(
+                "добавление канала: по нику %s несколько channel/chat среди членства бота (%s шт.)",
+                nick_hint,
+                len(matches),
+            )
             raise ValueError(
-                "Найдено несколько чатов с таким ником в диалогах бота; "
-                "укажите числовой chat_id или уточните ссылку."
+                "Найдено несколько групп/каналов с таким ником среди членства бота; "
+                "уточните ссылку или укажите числовой chat_id."
             ) from e
         else:
             if isinstance(e, MaxApiError):
+                logger.warning(
+                    "добавление канала: нику %s нет среди членства channel/chat (API было %s)",
+                    nick_hint,
+                    e.code,
+                )
                 raise ValueError(
-                    f"Канал по ссылке недоступен (код {e.code}), среди диалогов бота не найден. "
-                    "Добавьте бота в канал и повторите."
+                    f"Канал по ссылке недоступен (код {e.code}). "
+                    "Среди групп и каналов бота совпадений по нику нет — "
+                    "укажите числовой chat_id канала или проверьте, что бот в канале."
                 ) from e
+            logger.warning(
+                "добавление канала: нику %s нет среди членства channel/chat (%s)",
+                nick_hint,
+                e,
+            )
             raise ValueError(
-                f"Не удалось разрешить канал: {e}. "
-                f"Среди диалогов бота канала с ником «{nick_hint}» нет."
+                f"Не удалось разрешить канал по нику «{nick_hint}»: {e}. "
+                "Среди групп и каналов бота не найдено; уточните ссылку или chat_id."
             ) from e
 
     username = nick_hint
@@ -207,10 +350,12 @@ async def resolve_channel_from_link_only(
 async def parse_admin_channel_input(
     bot: Bot, text: str
 ) -> tuple[int, str, str | None, str | None]:
-    """Одна строка: ссылка на канал (https://max.ru/ник) или коротко @ник / ник."""
+    """Одна строка: chat_id (целое), ссылка (https://max.ru/ник) или коротко @ник / ник."""
     text = text.strip()
     if not text:
         raise ValueError("Пустой ввод.")
+    if _looks_like_numeric_chat_id(text):
+        return await resolve_channel_from_chat_id_only(bot, int(text.strip()))
     return await resolve_channel_from_link_only(bot, text)
 
 
