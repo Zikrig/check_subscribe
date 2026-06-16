@@ -1,11 +1,19 @@
 # app/db
+from pathlib import Path
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base, Mapped, mapped_column
-from sqlalchemy import String, BigInteger, insert, select
+from sqlalchemy import String, BigInteger, Boolean, insert, select
 
 from app.config import settings
 
-engine = create_async_engine(settings.DB_URL, echo=False)
+Path(settings.SQLITE_PATH).parent.mkdir(parents=True, exist_ok=True)
+
+engine = create_async_engine(
+    settings.DB_URL,
+    echo=False,
+    connect_args={"check_same_thread": False},
+)
 SessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
@@ -26,7 +34,7 @@ class Channel(Base):
     username: Mapped[str] = mapped_column(String)
     name: Mapped[str] = mapped_column(String, nullable=True)  # Новое поле
     link: Mapped[str] = mapped_column(String, nullable=True)  # Новое поле
-    is_active: Mapped[bool] = mapped_column(default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 class Counter(Base):
     __tablename__ = "counters"
@@ -60,4 +68,3 @@ async def init_db():
                         is_active=True
                     )
                 )
-        await conn.commit()

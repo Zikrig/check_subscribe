@@ -12,10 +12,8 @@ class Settings:
         chat_id, username = item.split(":")
         CHANNELS.append({"id": int(chat_id), "username": username})
 
-    DB_URL = (
-        f"postgresql+asyncpg://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-        f"@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
-    )
+    SQLITE_PATH = os.getenv("SQLITE_PATH", "data/promos.db")
+    DB_URL = f"sqlite+aiosqlite:///{SQLITE_PATH}"
     
     SHEET_ID = os.getenv("SHEET_ID")
     

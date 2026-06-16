@@ -2,4 +2,4 @@ aiogram==3.10.0
 python-dotenv==1.0.1
 SQLAlchemy==2.0.31
 gspread==6.1.2
-asyncpg==0.29.0
+aiosqlite==0.20.0

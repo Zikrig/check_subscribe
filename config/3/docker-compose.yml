@@ -1,17 +1,18 @@
-version: "3.9"
-
 services:
   bot:
     build: .
-    container_name: promo_bot
+    container_name: promo_bot_max8087
     restart: always
     env_file:
       - .env
+    # SQLite на хосте: ./data/promos.db (рядом с проектом, переживает пересборку)
     environment:
       SQLITE_PATH: /app/data/promos.db
     volumes:
       - .:/app
       - ./data:/app/data
+    ports:
+      - "8087:8080"
     dns:
       - 1.1.1.1
       - 8.8.8.8
