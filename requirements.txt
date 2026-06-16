@@ -1,4 +1,5 @@
 aiogram==3.10.0
+aiohttp==3.10.5
 python-dotenv==1.0.1
 SQLAlchemy==2.0.31
 gspread==6.1.2
