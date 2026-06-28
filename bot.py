@@ -7,6 +7,7 @@ from maxapi import Bot, Dispatcher
 from maxapi.enums.update import UpdateType
 
 from app.config import settings
+from app.max_api import apply_max_api_url
 from app.handlers import admin, user
 from app.services.channels import log_channels_at_startup
 from app.services.db import init_db
@@ -23,6 +24,7 @@ async def main():
 
     await init_db()
     bot = Bot(token=settings.BOT_TOKEN)
+    apply_max_api_url(bot)
     dp = Dispatcher()
     dp.include_routers(admin.router, user.router)
 

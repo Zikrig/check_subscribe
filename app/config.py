@@ -25,6 +25,9 @@ def _resolve_optional_path(env_name: str) -> Path | None:
 
 
 class Settings:
+    MAX_API_URL = (
+        os.getenv("MAX_API_URL", "https://platform-api2.max.ru").strip().rstrip("/")
+    )
     # Токен бота MAX: https://dev.max.ru/docs/chatbots/bots-nocode/manage
     # Поддерживаются MAX_BOT_TOKEN и BOT_TOKEN (для обратной совместимости)
     BOT_TOKEN = os.getenv("MAX_BOT_TOKEN") or os.getenv("BOT_TOKEN")
