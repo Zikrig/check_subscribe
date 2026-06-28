@@ -6,8 +6,11 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+MAX_API_URL = "https://platform-api.max.ru"
+
+
 async def is_user_subscribed(chat_id: int, user_id: int) -> bool:
-    url = f"{settings.MAX_API_URL}/chats/{chat_id}/members"
+    url = f"{MAX_API_URL}/chats/{chat_id}/members"
     params = {"user_ids": str(user_id)}
     headers = {"Authorization": settings.BOT_TOKEN}
 

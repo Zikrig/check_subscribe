@@ -9,7 +9,6 @@ services:
       - .env
     environment:
       SQLITE_PATH: /app/data/promos.db
-      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
     volumes:
       - .:/app
       - ./data:/app/data

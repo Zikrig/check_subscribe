@@ -4,9 +4,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    MAX_API_URL = (
-        os.getenv("MAX_API_URL", "https://platform-api2.max.ru").strip().rstrip("/")
-    )
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     ADMINS = [int(a.strip()) for a in os.getenv("ADMINS", "").split(",") if a]
     CHANNELS = []
